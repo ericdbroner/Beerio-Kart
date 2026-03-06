@@ -19,6 +19,7 @@ const UI_PHASE_LOBBY = "lobby";
 const UI_PHASE_BRACKET = "bracket";
 
 const els = {
+  appRoot: document.querySelector(".app"),
   joinScreen: document.querySelector("#join-screen"),
   toolbar: document.querySelector("#toolbar"),
   lobbyPanel: document.querySelector("#lobby-panel"),
@@ -1816,6 +1817,7 @@ function loserFeed(match) {
 function render() {
   reconcileLocalJoinedName();
   const phase = currentUiPhase();
+  applySectionOrder(phase);
   renderPhaseVisibility(phase);
   syncLobbyTextFromState();
   renderJoinDialog();
@@ -1828,6 +1830,34 @@ function render() {
   }
 
   refreshAdminControls();
+}
+
+function applySectionOrder(phase) {
+  const appRoot = els.appRoot;
+  if (!appRoot) {
+    return;
+  }
+
+  const defaultOrder = [
+    els.joinScreen,
+    els.toolbar,
+    els.lobbyPanel,
+    els.bracketShell
+  ];
+
+  const mobileOrder = phase === UI_PHASE_BRACKET
+    ? [els.bracketShell, els.toolbar, els.joinScreen, els.lobbyPanel]
+    : phase === UI_PHASE_LOBBY
+      ? [els.lobbyPanel, els.toolbar, els.joinScreen, els.bracketShell]
+      : [els.joinScreen, els.toolbar, els.lobbyPanel, els.bracketShell];
+
+  const targetOrder = isMobileView() ? mobileOrder : defaultOrder;
+
+  for (const section of targetOrder) {
+    if (section && section.parentElement === appRoot) {
+      appRoot.appendChild(section);
+    }
+  }
 }
 
 function reconcileLocalJoinedName() {

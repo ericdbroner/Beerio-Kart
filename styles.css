@@ -660,22 +660,6 @@ button.primary {
 }
 
 @media (max-width: 760px) {
-  .app {
-    display: flex;
-    flex-direction: column;
-    gap: 0.8rem;
-  }
-
-  #join-screen,
-  #lobby-panel,
-  #bracket-shell {
-    order: 1;
-  }
-
-  #toolbar {
-    order: 2;
-  }
-
   .hero {
     padding: 0.9rem 0.7rem 0.35rem;
   }
