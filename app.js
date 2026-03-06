@@ -713,20 +713,7 @@ function resetTournamentToLobby() {
     return;
   }
 
-  let adminName = normalizeName(localJoinedName);
-  if (!adminName) {
-    const enteredAdminName = window.prompt(
-      "Enter the admin player name to keep in lobby after reset:",
-      ""
-    );
-    adminName = normalizeName(enteredAdminName);
-  }
-
-  if (!adminName) {
-    notice = "Reset cancelled: admin name is required.";
-    renderMeta();
-    return;
-  }
+  const adminName = normalizeName(localJoinedName) || "Admin";
 
   const confirmed = window.confirm(
     `Reset tournament and return to lobby?\n\nThis will clear all bracket results, keep only ${adminName} in the lobby, and require everyone else to rejoin.`
