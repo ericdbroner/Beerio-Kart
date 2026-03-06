@@ -9,11 +9,25 @@
 <body>
   <header class="hero">
     <h1>Beerio Kart Redemption</h1>
-    <p>Single-elimination, win/loss bracket.</p>
+    <p>Win/loss tournament bracket.</p>
   </header>
 
   <main class="app">
-    <section class="toolbar panel" aria-label="Tournament controls">
+    <section id="join-screen" class="panel join-screen" aria-label="Join lobby">
+      <h2>Join Lobby</h2>
+      <p class="join-intro">Enter your name to join this tournament room.</p>
+      <div class="join-panel">
+        <label for="join-name">Player Name</label>
+        <div class="join-row">
+          <input id="join-name" type="text" maxlength="32" placeholder="Enter your name" />
+          <button id="join-lobby" type="button">Join</button>
+        </div>
+        <div id="join-status" class="join-status"></div>
+      </div>
+      <div id="join-count" class="join-count"></div>
+    </section>
+
+    <section id="toolbar" class="toolbar panel" aria-label="Tournament controls">
       <div class="admin-auth" aria-label="Admin access">
         <label for="admin-password">Admin</label>
         <input id="admin-password" type="password" placeholder="Password" />
@@ -22,20 +36,12 @@
         <span id="admin-status" class="admin-status">Viewer mode</span>
       </div>
       <div id="settings-panel" class="settings admin-only">
-        <div class="count-control">
-          <label for="player-count">Players</label>
-          <div class="stepper">
-            <button id="decrease-count" type="button" aria-label="Decrease players">-</button>
-            <input id="player-count" type="number" min="2" step="1" value="16" />
-            <button id="increase-count" type="button" aria-label="Increase players">+</button>
-          </div>
-        </div>
         <label for="elimination-mode">Format</label>
         <select id="elimination-mode">
           <option value="single">Single Elimination</option>
           <option value="double">Double Elimination</option>
         </select>
-        <button id="update-bracket" class="primary" type="button">Create Bracket</button>
+        <button id="update-bracket" class="primary" type="button">Update Format</button>
       </div>
       <div class="sync-controls admin-only" aria-label="Shared bracket sync controls">
         <label for="tournament-id">Tournament ID</label>
@@ -47,19 +53,10 @@
       <div id="meta" class="meta"></div>
     </section>
 
-    <section class="panel lobby-panel" aria-label="Lobby">
+    <section id="lobby-panel" class="panel lobby-panel" aria-label="Lobby">
       <div class="lobby-head">
         <h2>Lobby</h2>
         <button id="start-tournament" class="primary admin-only" type="button">Seed Players and Begin Tournament</button>
-      </div>
-
-      <div class="join-panel" aria-label="Join lobby">
-        <label for="join-name">Join Lobby</label>
-        <div class="join-row">
-          <input id="join-name" type="text" maxlength="32" placeholder="Enter your name" />
-          <button id="join-lobby" type="button">Join</button>
-        </div>
-        <div id="join-status" class="join-status"></div>
       </div>
 
       <div class="lobby-roster-wrap" aria-label="Lobby roster">
@@ -75,7 +72,7 @@
     </section>
 
     <section id="bracket-shell" class="panel bracket-shell" aria-label="Tournament bracket">
-      <div id="empty" class="empty-state">Adjust players and format above, then create or update the bracket.</div>
+      <div id="empty" class="empty-state">Bracket appears here after the admin seeds players and starts the tournament.</div>
 
       <div id="bracket-viewport" class="bracket-viewport hidden">
         <div id="bracket-canvas" class="bracket-canvas">

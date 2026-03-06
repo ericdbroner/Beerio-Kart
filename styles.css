@@ -178,25 +178,6 @@ button.primary {
   color: color-mix(in srgb, var(--dark-green) 80%, var(--kimberly));
 }
 
-.count-control {
-  display: flex;
-  flex-direction: column;
-  gap: 0.28rem;
-}
-
-.stepper {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.stepper button {
-  width: 2.1rem;
-  padding: 0.35rem 0.2rem;
-  font-weight: 700;
-  line-height: 1;
-}
-
 .settings input,
 .settings select {
   border: 1px solid color-mix(in srgb, var(--line) 70%, white);
@@ -204,11 +185,6 @@ button.primary {
   padding: 0.36rem 0.45rem;
   background: #fff;
   color: var(--ink);
-}
-
-#player-count {
-  width: 5.4rem;
-  text-align: center;
 }
 
 #elimination-mode {
@@ -266,6 +242,28 @@ button.primary {
   gap: 0.45rem;
 }
 
+.join-screen {
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.6rem;
+  max-width: 560px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.join-screen h2 {
+  margin: 0;
+  font-family: "Mario Kart", "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+  font-size: 1.02rem;
+  color: color-mix(in srgb, var(--dark-green) 82%, var(--kimberly));
+}
+
+.join-intro {
+  margin: 0;
+  color: color-mix(in srgb, var(--dark-green) 70%, var(--kimberly));
+  font-size: 0.92rem;
+}
+
 .lobby-head {
   display: flex;
   flex-wrap: wrap;
@@ -314,6 +312,11 @@ button.primary {
 
 .join-status.warn {
   color: var(--accent);
+}
+
+.join-count {
+  font-size: 0.9rem;
+  color: color-mix(in srgb, var(--dark-green) 70%, var(--kimberly));
 }
 
 .lobby-roster-wrap {
@@ -413,6 +416,44 @@ button.primary {
   width: 100%;
   display: grid;
   gap: 0.8rem;
+}
+
+.mobile-player-panel {
+  border: 1px solid color-mix(in srgb, var(--line) 45%, white);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--cornflower-blue) 4%, white);
+  padding: 0.65rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.mobile-player-title {
+  margin: 0;
+  font-family: "Mario Kart", "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+  font-size: 0.98rem;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--dark-green) 82%, var(--kimberly));
+}
+
+.mobile-player-queue,
+.mobile-player-type,
+.mobile-player-note {
+  margin: 0;
+  font-size: 0.88rem;
+  color: color-mix(in srgb, var(--dark-green) 72%, var(--kimberly));
+}
+
+.mobile-player-type {
+  font-weight: 700;
+  color: color-mix(in srgb, var(--dark-green) 82%, var(--kimberly));
+}
+
+.mobile-player-note.good {
+  color: var(--green);
+}
+
+.mobile-player-note.warn {
+  color: var(--accent);
 }
 
 .mobile-stage {
