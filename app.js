@@ -713,16 +713,17 @@ function resetTournamentToLobby() {
     return;
   }
 
-  const adminName = normalizeName(localJoinedName);
+  let adminName = normalizeName(localJoinedName);
   if (!adminName) {
-    notice = "Reset blocked: admin must join the lobby as a player first.";
-    renderMeta();
-    return;
+    const enteredAdminName = window.prompt(
+      "Enter the admin player name to keep in lobby after reset:",
+      ""
+    );
+    adminName = normalizeName(enteredAdminName);
   }
 
-  const currentLobby = normalizedLobbyPlayers(state.lobbyPlayers);
-  if (findLobbyIndexByName(currentLobby, adminName) < 0) {
-    notice = "Reset blocked: your admin player is not in the lobby roster.";
+  if (!adminName) {
+    notice = "Reset cancelled: admin name is required.";
     renderMeta();
     return;
   }
