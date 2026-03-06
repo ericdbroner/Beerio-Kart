@@ -42,12 +42,9 @@
           <option value="double">Double Elimination</option>
         </select>
         <button id="update-bracket" class="primary" type="button">Update Format</button>
+        <button id="reset-tournament" type="button">Reset Tournament</button>
       </div>
-      <div class="sync-controls admin-only" aria-label="Shared bracket sync controls">
-        <label for="tournament-id">Tournament ID</label>
-        <input id="tournament-id" type="text" maxlength="40" value="live" />
-        <button id="join-tournament" type="button">Join</button>
-        <button id="copy-link" type="button">Copy Link</button>
+      <div class="sync-controls" aria-label="Shared bracket sync status">
         <span id="sync-status" class="sync-status">Cloud sync: local only</span>
       </div>
       <div id="meta" class="meta"></div>

@@ -3,7 +3,7 @@ const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 256;
 const DEFAULT_PLAYERS = 16;
 const DEFAULT_MODE = "single";
-const DEFAULT_TOURNAMENT_ID = "live";
+const SHARED_TOURNAMENT_ID = "live";
 const CLOUD_SCHEMA_VERSION = 1;
 const CLOUD_SYNC_DEBOUNCE_MS = 250;
 const DEVICE_ID_KEY = "beerio-kart-device-id";
@@ -30,6 +30,7 @@ const els = {
   settingsPanel: document.querySelector("#settings-panel"),
   eliminationMode: document.querySelector("#elimination-mode"),
   updateBracket: document.querySelector("#update-bracket"),
+  resetTournament: document.querySelector("#reset-tournament"),
   startTournament: document.querySelector("#start-tournament"),
   joinName: document.querySelector("#join-name"),
   joinLobby: document.querySelector("#join-lobby"),
@@ -38,9 +39,6 @@ const els = {
   lobbyRoster: document.querySelector("#lobby-roster"),
   lobbyPlayers: document.querySelector("#lobby-players"),
   lobbyStatus: document.querySelector("#lobby-status"),
-  tournamentId: document.querySelector("#tournament-id"),
-  joinTournament: document.querySelector("#join-tournament"),
-  copyLink: document.querySelector("#copy-link"),
   syncStatus: document.querySelector("#sync-status"),
   meta: document.querySelector("#meta"),
   bracketShell: document.querySelector("#bracket-shell"),
@@ -67,7 +65,6 @@ let cloudEnabled = false;
 let cloudDatabase = null;
 let cloudRef = null;
 let cloudListener = null;
-let activeTournamentId = DEFAULT_TOURNAMENT_ID;
 const deviceId = getDeviceId();
 let isAdminUnlocked = false;
 const actionSoundPool = createActionSoundPool();
@@ -108,6 +105,10 @@ function boot() {
     applyPendingSettings();
   });
 
+  els.resetTournament.addEventListener("click", () => {
+    resetTournamentToLobby();
+  });
+
   els.startTournament.addEventListener("click", () => {
     startTournamentFromLobby();
   });
@@ -131,23 +132,6 @@ function boot() {
     notice = "Lobby updated.";
     persistState();
     render();
-  });
-
-  els.joinTournament.addEventListener("click", () => {
-    if (!isAdminUnlocked) {
-      notice = "Admin unlock required to change tournament ID.";
-      renderMeta();
-      return;
-    }
-    applyTournamentFromInput();
-  });
-
-  els.tournamentId.addEventListener("change", () => {
-    normalizeTournamentInput();
-  });
-
-  els.copyLink.addEventListener("click", () => {
-    copyShareLink();
   });
 
   els.adminLogin.addEventListener("click", () => {
@@ -396,8 +380,7 @@ function refreshAdminControls() {
 
   els.eliminationMode.disabled = !isAdminUnlocked || state.tournamentStarted;
   els.updateBracket.disabled = !isAdminUnlocked;
-  els.tournamentId.disabled = !isAdminUnlocked;
-  els.joinTournament.disabled = !isAdminUnlocked || !cloudEnabled;
+  els.resetTournament.disabled = !isAdminUnlocked || !state.tournamentStarted;
   els.startTournament.disabled = (
     !isAdminUnlocked ||
     state.tournamentStarted ||
@@ -717,6 +700,38 @@ function startTournamentFromLobby() {
   render();
 }
 
+function resetTournamentToLobby() {
+  if (!isAdminUnlocked) {
+    notice = "Admin unlock required to reset the tournament.";
+    renderMeta();
+    return;
+  }
+
+  if (!state.tournamentStarted) {
+    notice = "Tournament has not started.";
+    renderMeta();
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "Reset the current tournament and return to lobby? This clears all bracket results."
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  const lobbyPlayers = normalizedLobbyPlayers(state.lobbyPlayers);
+  state.tournamentStarted = false;
+  state.playerCount = clamp(Math.max(lobbyPlayers.length, DEFAULT_PLAYERS), MIN_PLAYERS, MAX_PLAYERS);
+  state.bracketSize = nextPowerOfTwo(state.playerCount);
+  state.rounds = [];
+  state.losersRounds = [];
+  state.grandFinals = [];
+  notice = "Tournament reset. Back in lobby.";
+  persistState();
+  render();
+}
+
 function seedPlayersIntoFirstRound(randomizedPlayers) {
   const playerBySeed = new Map();
   for (let index = 0; index < randomizedPlayers.length; index += 1) {
@@ -737,6 +752,7 @@ function seedPlayersIntoFirstRound(randomizedPlayers) {
       }
     }
     match.winnerIndex = null;
+    clearMatchConfirmations(match);
   }
 }
 
@@ -750,17 +766,11 @@ function shuffleCopy(items) {
 }
 
 function initCloudSync() {
-  const initialTournamentId = getInitialTournamentId();
-  activeTournamentId = initialTournamentId;
-  els.tournamentId.value = initialTournamentId;
-  updateShareUrl(initialTournamentId);
-
   const firebaseConfig = window.BEERIO_FIREBASE_CONFIG;
   const firebaseAvailable = Boolean(window.firebase?.database);
 
   if (!firebaseAvailable || !hasValidFirebaseConfig(firebaseConfig)) {
     cloudEnabled = false;
-    els.joinTournament.disabled = true;
     setCloudStatus("Cloud sync: local only (add Firebase config)", "offline");
     return;
   }
@@ -771,59 +781,18 @@ function initCloudSync() {
     }
     cloudDatabase = window.firebase.database();
     cloudEnabled = true;
-    els.joinTournament.disabled = false;
-    setCloudStatus(`Cloud sync: connecting (${initialTournamentId})...`, "offline");
-    connectToTournament(initialTournamentId);
+    setCloudStatus("Cloud sync: connecting...", "offline");
+    connectToSharedTournament();
   } catch (_error) {
     cloudEnabled = false;
-    els.joinTournament.disabled = true;
     setCloudStatus("Cloud sync: unavailable (Firebase init failed)", "offline");
   }
 }
 
-function applyTournamentFromInput() {
-  const nextTournamentId = sanitizeTournamentId(els.tournamentId.value) || DEFAULT_TOURNAMENT_ID;
-  els.tournamentId.value = nextTournamentId;
-
-  if (!cloudEnabled) {
-    notice = "Cloud sync is disabled until Firebase is configured.";
-    renderMeta();
-    return;
-  }
-
-  if (nextTournamentId === activeTournamentId) {
-    notice = "Already connected to this tournament.";
-    renderMeta();
-    return;
-  }
-
-  if (hasEnteredPlayerNames()) {
-    const confirmed = window.confirm(
-      "Switching tournament ID will replace this view with shared bracket data. Continue?"
-    );
-    if (!confirmed) {
-      els.tournamentId.value = activeTournamentId;
-      return;
-    }
-  }
-
-  connectToTournament(nextTournamentId);
-}
-
-function normalizeTournamentInput() {
-  const normalized = sanitizeTournamentId(els.tournamentId.value) || DEFAULT_TOURNAMENT_ID;
-  els.tournamentId.value = normalized;
-}
-
-function connectToTournament(tournamentId) {
+function connectToSharedTournament() {
   if (!cloudEnabled || !cloudDatabase) {
     return;
   }
-
-  const normalizedId = sanitizeTournamentId(tournamentId) || DEFAULT_TOURNAMENT_ID;
-  activeTournamentId = normalizedId;
-  els.tournamentId.value = normalizedId;
-  updateShareUrl(normalizedId);
 
   cloudInitialReadComplete = false;
 
@@ -831,7 +800,7 @@ function connectToTournament(tournamentId) {
     cloudRef.off("value", cloudListener);
   }
 
-  cloudRef = cloudDatabase.ref(`tournaments/${normalizedId}`);
+  cloudRef = cloudDatabase.ref(`tournaments/${SHARED_TOURNAMENT_ID}`);
 
   let firstEvent = true;
   cloudListener = (snapshot) => {
@@ -844,14 +813,14 @@ function connectToTournament(tournamentId) {
 
     if (remoteState && typeof remoteState === "object") {
       applyRemoteState(remoteState);
-      setCloudStatus(`Cloud sync: live (${normalizedId})`, "online");
+      setCloudStatus("Cloud sync: live", "online");
 
       if (firstEvent) {
-        notice = `Connected to shared bracket "${normalizedId}".`;
+        notice = "Connected to shared bracket.";
       }
     } else if (firstEvent) {
-      setCloudStatus(`Cloud sync: live (${normalizedId})`, "online");
-      notice = `Started shared bracket "${normalizedId}".`;
+      setCloudStatus("Cloud sync: live", "online");
+      notice = "Started shared bracket.";
       queueCloudSync();
     }
 
@@ -859,7 +828,7 @@ function connectToTournament(tournamentId) {
   };
 
   cloudRef.on("value", cloudListener, () => {
-    setCloudStatus(`Cloud sync: connection issue (${normalizedId})`, "offline");
+    setCloudStatus("Cloud sync: connection issue", "offline");
   });
 }
 
@@ -907,9 +876,9 @@ function pushStateToCloud() {
   };
 
   cloudRef.set(payload).then(() => {
-    setCloudStatus(`Cloud sync: live (${activeTournamentId})`, "online");
+    setCloudStatus("Cloud sync: live", "online");
   }).catch(() => {
-    setCloudStatus(`Cloud sync: write failed (${activeTournamentId})`, "offline");
+    setCloudStatus("Cloud sync: write failed", "offline");
   });
 }
 
@@ -924,56 +893,6 @@ function cloneStateForCloud(sourceState) {
     losersRounds: sourceState.losersRounds,
     grandFinals: sourceState.grandFinals
   };
-}
-
-function copyShareLink() {
-  const link = shareLinkForTournament(activeTournamentId);
-
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(link).then(() => {
-      notice = "Share link copied.";
-      renderMeta();
-    }).catch(() => {
-      notice = "Copy failed. Share link is in the address bar.";
-      renderMeta();
-    });
-    return;
-  }
-
-  notice = "Clipboard unavailable. Copy link from address bar.";
-  renderMeta();
-}
-
-function shareLinkForTournament(tournamentId) {
-  const url = new URL(window.location.href);
-  url.searchParams.set("t", tournamentId);
-  return url.toString();
-}
-
-function updateShareUrl(tournamentId) {
-  const url = new URL(window.location.href);
-  url.searchParams.set("t", tournamentId);
-  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
-}
-
-function getInitialTournamentId() {
-  const url = new URL(window.location.href);
-  return sanitizeTournamentId(url.searchParams.get("t")) || DEFAULT_TOURNAMENT_ID;
-}
-
-function sanitizeTournamentId(rawValue) {
-  const normalized = String(rawValue || "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9_-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^[-_]+|[-_]+$/g, "");
-
-  if (!normalized) {
-    return "";
-  }
-
-  return normalized.slice(0, 40);
 }
 
 function hasValidFirebaseConfig(config) {
@@ -1115,6 +1034,7 @@ function createWinnersRounds(playerCount, bracketSize) {
     firstRound.push({
       players: ["", ""],
       winnerIndex: null,
+      confirmations: {},
       seeds: [seedA, seedB],
       locked: [lockedA, lockedB],
       slotReady: [lockedA, lockedB]
@@ -1160,6 +1080,7 @@ function createProgressionMatch() {
   return {
     players: ["", ""],
     winnerIndex: null,
+    confirmations: {},
     seeds: [null, null],
     locked: [false, false],
     slotReady: [false, false]
@@ -1190,6 +1111,7 @@ function handleBracketChange(event) {
   if (!match.players[slotIndex] && match.winnerIndex === slotIndex) {
     match.winnerIndex = null;
   }
+  clearMatchConfirmations(match);
 
   notice = "Player name updated.";
   recalculateBracket();
@@ -1200,12 +1122,6 @@ function handleBracketChange(event) {
 function handleBracketClick(event) {
   const button = event.target.closest(".win-btn");
   if (!button) {
-    return;
-  }
-
-  if (!isAdminUnlocked) {
-    notice = "Admin unlock required to record match results.";
-    renderMeta();
     return;
   }
 
@@ -1225,12 +1141,390 @@ function handleBracketClick(event) {
     return;
   }
 
-  match.winnerIndex = slotIndex;
-  notice = "Winner advanced.";
+  const actor = currentMatchSelectionActor();
 
-  recalculateBracket();
-  persistState();
-  render();
+  if (cloudEnabled && cloudRef) {
+    submitMatchSelectionViaCloud(stage, roundIndex, matchIndex, slotIndex, actor);
+    return;
+  }
+
+  const result = applyMatchSelectionToState(state, stage, roundIndex, matchIndex, slotIndex, actor);
+  if (!result.ok) {
+    notice = matchSelectionFailureMessage(result.reason);
+    renderMeta();
+    return;
+  }
+
+  notice = result.message;
+
+  if (result.changed) {
+    persistState();
+    render();
+    return;
+  }
+
+  renderMeta();
+}
+
+function currentMatchSelectionActor() {
+  if (isAdminUnlocked) {
+    return { type: "admin", name: "" };
+  }
+
+  return { type: "player", name: normalizeName(localJoinedName) };
+}
+
+function submitMatchSelectionViaCloud(stage, roundIndex, matchIndex, slotIndex, actor) {
+  if (!cloudRef) {
+    notice = "Cloud connection not ready yet.";
+    renderMeta();
+    return;
+  }
+
+  let pendingResult = { ok: false, changed: false, reason: "unknown", message: "" };
+
+  cloudRef.transaction((currentValue) => {
+    const currentPayload = currentValue && typeof currentValue === "object"
+      ? { ...currentValue }
+      : {};
+    const baselineState = coerceStateObject(currentPayload.state) || coerceStateObject(state) || createDefaultState();
+
+    pendingResult = applyMatchSelectionToState(
+      baselineState,
+      stage,
+      roundIndex,
+      matchIndex,
+      slotIndex,
+      actor
+    );
+
+    if (!pendingResult.ok || !pendingResult.changed) {
+      return;
+    }
+
+    currentPayload.schemaVersion = CLOUD_SCHEMA_VERSION;
+    currentPayload.updatedAt = Date.now();
+    currentPayload.updatedBy = deviceId;
+    currentPayload.state = cloneStateForCloud(baselineState);
+    return currentPayload;
+  }, (error, committed) => {
+    if (error) {
+      notice = "Unable to record result right now.";
+      renderMeta();
+      return;
+    }
+
+    if (!pendingResult.ok) {
+      notice = matchSelectionFailureMessage(pendingResult.reason);
+      renderMeta();
+      return;
+    }
+
+    notice = pendingResult.message;
+
+    if (!pendingResult.changed || !committed) {
+      renderMeta();
+      return;
+    }
+
+    renderMeta();
+  }, false);
+}
+
+function applyMatchSelectionToState(targetState, stage, roundIndex, matchIndex, slotIndex, actor) {
+  if (!targetState.tournamentStarted) {
+    return {
+      ok: false,
+      changed: false,
+      reason: "not_started",
+      message: ""
+    };
+  }
+
+  if (slotIndex !== 0 && slotIndex !== 1) {
+    return {
+      ok: false,
+      changed: false,
+      reason: "invalid_slot",
+      message: ""
+    };
+  }
+
+  const match = getMatchFromState(targetState, stage, roundIndex, matchIndex);
+  if (!match) {
+    return {
+      ok: false,
+      changed: false,
+      reason: "invalid_match",
+      message: ""
+    };
+  }
+
+  const slotName = normalizeName(match.players?.[slotIndex]);
+  const otherName = normalizeName(match.players?.[1 - slotIndex]);
+  if (!slotName || !otherName) {
+    return {
+      ok: false,
+      changed: false,
+      reason: "incomplete",
+      message: ""
+    };
+  }
+
+  if (actor.type === "admin") {
+    const alreadySet = match.winnerIndex === slotIndex;
+    match.winnerIndex = slotIndex;
+    clearMatchConfirmations(match);
+    recalculateStateObject(targetState);
+    return {
+      ok: true,
+      changed: !alreadySet,
+      reason: "",
+      message: `Admin set winner: ${slotName}.`
+    };
+  }
+
+  const actorName = normalizeName(actor.name);
+  if (!actorName) {
+    return {
+      ok: false,
+      changed: false,
+      reason: "join_required",
+      message: ""
+    };
+  }
+
+  const playerSlot = localPlayerSlotInMatch(match, actorName);
+  if (playerSlot < 0) {
+    return {
+      ok: false,
+      changed: false,
+      reason: "not_participant",
+      message: ""
+    };
+  }
+
+  if (match.winnerIndex !== null) {
+    return {
+      ok: false,
+      changed: false,
+      reason: "already_decided",
+      message: ""
+    };
+  }
+
+  normalizeMatchConfirmations(match);
+  const confirmations = ensureMatchConfirmations(match);
+  const actorKey = normalizeName(actorName).toLowerCase();
+  const priorVote = confirmations[actorKey];
+  confirmations[actorKey] = slotIndex;
+  normalizeMatchConfirmations(match);
+
+  const outcome = confirmationOutcome(match);
+  if (outcome.state === "agreed") {
+    match.winnerIndex = outcome.slotIndex;
+    clearMatchConfirmations(match);
+    recalculateStateObject(targetState);
+    return {
+      ok: true,
+      changed: true,
+      reason: "",
+      message: `Winner confirmed: ${match.players[outcome.slotIndex]}.`
+    };
+  }
+
+  if (outcome.state === "conflict") {
+    return {
+      ok: true,
+      changed: priorVote !== slotIndex || Object.keys(confirmations).length >= 2,
+      reason: "",
+      message: "Conflicting confirmations. Both players must agree or an admin can set the winner."
+    };
+  }
+
+  return {
+    ok: true,
+    changed: priorVote !== slotIndex,
+    reason: "",
+    message: outcome.waitingFor
+      ? `Result recorded. Waiting for ${outcome.waitingFor} to confirm.`
+      : "Result recorded."
+  };
+}
+
+function matchSelectionFailureMessage(reason) {
+  if (reason === "join_required") {
+    return "Join the lobby first to report match results.";
+  }
+
+  if (reason === "not_participant") {
+    return "Only players in this matchup can confirm the result.";
+  }
+
+  if (reason === "already_decided") {
+    return "Match result already finalized.";
+  }
+
+  if (reason === "not_started") {
+    return "Tournament has not started.";
+  }
+
+  if (reason === "incomplete") {
+    return "Both players must be set before reporting a result.";
+  }
+
+  return "Unable to record this result.";
+}
+
+function getMatchFromState(targetState, stage, roundIndex, matchIndex) {
+  if (stage === "winners") {
+    return targetState.rounds?.[roundIndex]?.[matchIndex] || null;
+  }
+
+  if (stage === "losers") {
+    return targetState.losersRounds?.[roundIndex]?.[matchIndex] || null;
+  }
+
+  if (stage === "grand") {
+    const grandRound = targetState.grandFinals?.[roundIndex];
+    if (Array.isArray(grandRound)) {
+      return grandRound[matchIndex] || null;
+    }
+    return grandRound || null;
+  }
+
+  return null;
+}
+
+function recalculateStateObject(targetState) {
+  const currentState = state;
+  state = targetState;
+  try {
+    recalculateBracket();
+  } finally {
+    state = currentState;
+  }
+}
+
+function ensureMatchConfirmations(match) {
+  if (!match || typeof match !== "object") {
+    return {};
+  }
+
+  if (!match.confirmations || typeof match.confirmations !== "object" || Array.isArray(match.confirmations)) {
+    match.confirmations = {};
+  }
+
+  return match.confirmations;
+}
+
+function clearMatchConfirmations(match) {
+  if (!match || typeof match !== "object") {
+    return;
+  }
+  match.confirmations = {};
+}
+
+function normalizeMatchConfirmations(match) {
+  const confirmations = ensureMatchConfirmations(match);
+  const allowedKeys = new Set();
+
+  const nameA = normalizeName(match.players?.[0]);
+  const nameB = normalizeName(match.players?.[1]);
+  if (nameA) {
+    allowedKeys.add(nameA.toLowerCase());
+  }
+  if (nameB) {
+    allowedKeys.add(nameB.toLowerCase());
+  }
+
+  const cleaned = {};
+  for (const [key, selectedSlot] of Object.entries(confirmations)) {
+    if (!allowedKeys.has(key)) {
+      continue;
+    }
+    if (selectedSlot !== 0 && selectedSlot !== 1) {
+      continue;
+    }
+    cleaned[key] = selectedSlot;
+  }
+
+  match.confirmations = cleaned;
+}
+
+function confirmationOutcome(match) {
+  normalizeMatchConfirmations(match);
+  const confirmations = ensureMatchConfirmations(match);
+  const nameA = normalizeName(match.players?.[0]);
+  const nameB = normalizeName(match.players?.[1]);
+  const keyA = nameA ? nameA.toLowerCase() : "";
+  const keyB = nameB ? nameB.toLowerCase() : "";
+  const voteA = keyA ? confirmations[keyA] : null;
+  const voteB = keyB ? confirmations[keyB] : null;
+  const hasVoteA = voteA === 0 || voteA === 1;
+  const hasVoteB = voteB === 0 || voteB === 1;
+
+  if (hasVoteA && hasVoteB) {
+    if (voteA === voteB) {
+      return { state: "agreed", slotIndex: voteA };
+    }
+    return { state: "conflict", slotIndex: null, waitingFor: "" };
+  }
+
+  if (hasVoteA || hasVoteB) {
+    return {
+      state: "pending",
+      slotIndex: null,
+      waitingFor: hasVoteA ? nameB : nameA
+    };
+  }
+
+  return { state: "none", slotIndex: null, waitingFor: "" };
+}
+
+function localPlayerSlotInMatch(match, playerName) {
+  const target = normalizeName(playerName).toLowerCase();
+  if (!target) {
+    return -1;
+  }
+
+  const slotA = normalizeName(match.players?.[0]).toLowerCase();
+  const slotB = normalizeName(match.players?.[1]).toLowerCase();
+  if (slotA === target) {
+    return 0;
+  }
+  if (slotB === target) {
+    return 1;
+  }
+  return -1;
+}
+
+function canLocalPlayerVoteMatch(match) {
+  if (!state.tournamentStarted || !match || match.winnerIndex !== null) {
+    return false;
+  }
+
+  const hasTwoPlayers = Boolean(
+    normalizeName(match.players?.[0]) &&
+    normalizeName(match.players?.[1])
+  );
+
+  if (!hasTwoPlayers) {
+    return false;
+  }
+
+  return localPlayerSlotInMatch(match, localJoinedName) >= 0;
+}
+
+function localPlayerVoteForMatch(match) {
+  const name = normalizeName(localJoinedName);
+  if (!name) {
+    return null;
+  }
+
+  normalizeMatchConfirmations(match);
+  const vote = ensureMatchConfirmations(match)[name.toLowerCase()];
+  return vote === 0 || vote === 1 ? vote : null;
 }
 
 function getMatch(stage, roundIndex, matchIndex) {
@@ -1370,8 +1664,10 @@ function applyMatchFromFeeds(match, feedA, feedB) {
     match.players = nextPlayers;
     match.slotReady = nextReady;
     match.winnerIndex = null;
+    clearMatchConfirmations(match);
   } else {
     match.slotReady = nextReady;
+    normalizeMatchConfirmations(match);
   }
 
   match.seeds = [null, null];
@@ -1421,13 +1717,26 @@ function sanitizeMatch(match, isFirstRound) {
     }
   }
 
-  if (match.winnerIndex !== 0 && match.winnerIndex !== 1) {
-    match.winnerIndex = null;
-    return;
+  normalizeMatchConfirmations(match);
+
+  const hasTwoNamedPlayers = Boolean(match.players[0] && match.players[1]);
+  if (!hasTwoNamedPlayers) {
+    clearMatchConfirmations(match);
   }
 
-  if (!match.slotReady[match.winnerIndex] || !match.players[match.winnerIndex]) {
+  if (match.winnerIndex !== 0 && match.winnerIndex !== 1) {
     match.winnerIndex = null;
+  }
+
+  if (
+    match.winnerIndex !== null &&
+    (!match.slotReady[match.winnerIndex] || !match.players[match.winnerIndex])
+  ) {
+    match.winnerIndex = null;
+  }
+
+  if (match.winnerIndex !== null) {
+    clearMatchConfirmations(match);
   }
 }
 
@@ -1440,33 +1749,39 @@ function applyAutoAdvance(match, isFirstRound) {
 
   if (byeA && readyB && b) {
     match.winnerIndex = 1;
+    clearMatchConfirmations(match);
     return;
   }
 
   if (byeB && readyA && a) {
     match.winnerIndex = 0;
+    clearMatchConfirmations(match);
     return;
   }
 
   if (!readyA || !readyB) {
     if (!a || !b) {
       match.winnerIndex = null;
+      clearMatchConfirmations(match);
     }
     return;
   }
 
   if (a && !b) {
     match.winnerIndex = 0;
+    clearMatchConfirmations(match);
     return;
   }
 
   if (!a && b) {
     match.winnerIndex = 1;
+    clearMatchConfirmations(match);
     return;
   }
 
   if (!a && !b) {
     match.winnerIndex = null;
+    clearMatchConfirmations(match);
   }
 }
 
@@ -1959,6 +2274,8 @@ function renderMatch(stage, roundIndex, matchIndex, title, editableNames) {
   head.textContent = title;
 
   const isEntryRound = stage === "winners" && roundIndex === 0;
+  const localPlayerVote = localPlayerVoteForMatch(match);
+  const localCanVote = canLocalPlayerVoteMatch(match);
   const rows = Array.from(node.querySelectorAll(".competitor"));
 
   for (let slotIndex = 0; slotIndex < 2; slotIndex += 1) {
@@ -1975,8 +2292,19 @@ function renderMatch(stage, roundIndex, matchIndex, title, editableNames) {
     winBtn.dataset.round = String(roundIndex);
     winBtn.dataset.match = String(matchIndex);
     winBtn.dataset.slot = String(slotIndex);
-    winBtn.disabled = !slotName || !otherName || !state.tournamentStarted || !isAdminUnlocked;
-    winBtn.textContent = isWinner ? "Won" : "Win";
+    const canAdminSet = isAdminUnlocked && state.tournamentStarted && Boolean(slotName && otherName);
+    const canPlayerConfirm = !isAdminUnlocked && localCanVote;
+    winBtn.disabled = !(canAdminSet || canPlayerConfirm);
+
+    if (isWinner) {
+      winBtn.textContent = "Won";
+    } else if (canAdminSet) {
+      winBtn.textContent = "Set Win";
+    } else if (canPlayerConfirm) {
+      winBtn.textContent = localPlayerVote === slotIndex ? "Voted" : "Confirm";
+    } else {
+      winBtn.textContent = "Win";
+    }
 
     const seedTag = row.querySelector(".seed-tag");
     if (isEntryRound && slotSeed !== null) {
@@ -2113,7 +2441,19 @@ function matchStatus(match, isEntryRound) {
   }
 
   if (match.winnerIndex === null) {
-    return "Pick the winner.";
+    const outcome = confirmationOutcome(match);
+    if (outcome.state === "conflict") {
+      return "Conflicting confirmations. Both players must agree or admin sets winner.";
+    }
+    if (outcome.state === "pending") {
+      return outcome.waitingFor
+        ? `Waiting for ${outcome.waitingFor} confirmation.`
+        : "Waiting for player confirmation.";
+    }
+    if (isAdminUnlocked) {
+      return "Admin can set winner, or both players can confirm.";
+    }
+    return "Both players must confirm the winner.";
   }
 
   return `Advances: ${match.players[match.winnerIndex]}`;
