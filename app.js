@@ -758,7 +758,7 @@ function seedPlayersIntoFirstRound(randomizedPlayers) {
       }
     }
     match.winnerIndex = null;
-    clearMatchConfirmations(match);
+    clearMatchVotes(match);
   }
 }
 
@@ -1025,6 +1025,10 @@ function createBracket(playerCount, mode) {
   };
 }
 
+function createEmptyMatchVotes() {
+  return { 0: null, 1: null };
+}
+
 function createWinnersRounds(playerCount, bracketSize) {
   const roundCount = Math.log2(bracketSize);
   const rounds = [];
@@ -1040,7 +1044,7 @@ function createWinnersRounds(playerCount, bracketSize) {
     firstRound.push({
       players: ["", ""],
       winnerIndex: null,
-      confirmations: {},
+      votes: createEmptyMatchVotes(),
       seeds: [seedA, seedB],
       locked: [lockedA, lockedB],
       slotReady: [lockedA, lockedB]
@@ -1086,7 +1090,7 @@ function createProgressionMatch() {
   return {
     players: ["", ""],
     winnerIndex: null,
-    confirmations: {},
+    votes: createEmptyMatchVotes(),
     seeds: [null, null],
     locked: [false, false],
     slotReady: [false, false]
@@ -1117,7 +1121,7 @@ function handleBracketChange(event) {
   if (!match.players[slotIndex] && match.winnerIndex === slotIndex) {
     match.winnerIndex = null;
   }
-  clearMatchConfirmations(match);
+  clearMatchVotes(match);
 
   notice = "Player name updated.";
   recalculateBracket();
@@ -1188,6 +1192,7 @@ function submitMatchSelectionViaCloud(stage, roundIndex, matchIndex, slotIndex, 
   }
 
   let pendingResult = { ok: false, changed: false, reason: "unknown", message: "" };
+  let pendingCommittedState = null;
 
   cloudRef.transaction((currentValue) => {
     const currentPayload = currentValue && typeof currentValue === "object"
@@ -1208,6 +1213,7 @@ function submitMatchSelectionViaCloud(stage, roundIndex, matchIndex, slotIndex, 
       return;
     }
 
+    pendingCommittedState = baselineState;
     currentPayload.schemaVersion = CLOUD_SCHEMA_VERSION;
     currentPayload.updatedAt = Date.now();
     currentPayload.updatedBy = deviceId;
@@ -1233,7 +1239,18 @@ function submitMatchSelectionViaCloud(stage, roundIndex, matchIndex, slotIndex, 
       return;
     }
 
-    renderMeta();
+    if (pendingCommittedState) {
+      const nextState = coerceStateObject(pendingCommittedState);
+      if (nextState) {
+        state = nextState;
+        els.eliminationMode.value = state.eliminationMode;
+        syncLobbyTextFromState();
+        recalculateBracket();
+        persistLocalState();
+      }
+    }
+
+    render();
   }, false);
 }
 
@@ -1280,7 +1297,7 @@ function applyMatchSelectionToState(targetState, stage, roundIndex, matchIndex, 
   if (actor.type === "admin") {
     const alreadySet = match.winnerIndex === slotIndex;
     match.winnerIndex = slotIndex;
-    clearMatchConfirmations(match);
+    clearMatchVotes(match);
     recalculateStateObject(targetState);
     return {
       ok: true,
@@ -1319,17 +1336,16 @@ function applyMatchSelectionToState(targetState, stage, roundIndex, matchIndex, 
     };
   }
 
-  normalizeMatchConfirmations(match);
-  const confirmations = ensureMatchConfirmations(match);
-  const actorKey = normalizeName(actorName).toLowerCase();
-  const priorVote = confirmations[actorKey];
-  confirmations[actorKey] = slotIndex;
-  normalizeMatchConfirmations(match);
+  normalizeMatchVotes(match);
+  const votes = ensureMatchVotes(match);
+  const priorVote = normalizeVoteSlot(votes[playerSlot]);
+  votes[playerSlot] = slotIndex;
+  normalizeMatchVotes(match);
 
   const outcome = confirmationOutcome(match);
   if (outcome.state === "agreed") {
     match.winnerIndex = outcome.slotIndex;
-    clearMatchConfirmations(match);
+    clearMatchVotes(match);
     recalculateStateObject(targetState);
     return {
       ok: true,
@@ -1342,9 +1358,9 @@ function applyMatchSelectionToState(targetState, stage, roundIndex, matchIndex, 
   if (outcome.state === "conflict") {
     return {
       ok: true,
-      changed: priorVote !== slotIndex || Object.keys(confirmations).length >= 2,
+      changed: priorVote !== slotIndex,
       reason: "",
-      message: "Conflicting confirmations. Both players must agree or an admin can set the winner."
+      message: "Conflicting confirmations. Players must agree on the same winner."
     };
   }
 
@@ -1412,80 +1428,119 @@ function recalculateStateObject(targetState) {
   }
 }
 
-function ensureMatchConfirmations(match) {
-  if (!match || typeof match !== "object") {
-    return {};
+function normalizeVoteSlot(value) {
+  const parsed = Number(value);
+  if (parsed !== 0 && parsed !== 1) {
+    return null;
   }
-
-  if (!match.confirmations || typeof match.confirmations !== "object" || Array.isArray(match.confirmations)) {
-    match.confirmations = {};
-  }
-
-  return match.confirmations;
+  return parsed;
 }
 
-function clearMatchConfirmations(match) {
-  if (!match || typeof match !== "object") {
+function migrateLegacyVotes(match) {
+  const migrated = createEmptyMatchVotes();
+  const confirmations = match && typeof match === "object" ? match.confirmations : null;
+  if (!confirmations || typeof confirmations !== "object" || Array.isArray(confirmations)) {
+    return migrated;
+  }
+
+  for (let voterSlot = 0; voterSlot < 2; voterSlot += 1) {
+    const playerName = normalizeName(match.players?.[voterSlot]).toLowerCase();
+    if (!playerName) {
+      continue;
+    }
+    const legacyVote = normalizeVoteSlot(confirmations[playerName]);
+    if (legacyVote !== null) {
+      migrated[voterSlot] = legacyVote;
+    }
+  }
+
+  return migrated;
+}
+
+function ensureMatchVotes(match) {
+  if (!match || typeof match !== "object" || Array.isArray(match)) {
+    return createEmptyMatchVotes();
+  }
+
+  const existingVotes = (
+    match.votes && typeof match.votes === "object" && !Array.isArray(match.votes)
+      ? match.votes
+      : {}
+  );
+  const legacyVotes = migrateLegacyVotes(match);
+  const normalizedVotes = createEmptyMatchVotes();
+
+  for (let voterSlot = 0; voterSlot < 2; voterSlot += 1) {
+    const directVote = normalizeVoteSlot(existingVotes[voterSlot]);
+    normalizedVotes[voterSlot] = directVote !== null ? directVote : legacyVotes[voterSlot];
+  }
+
+  match.votes = normalizedVotes;
+  if (Object.prototype.hasOwnProperty.call(match, "confirmations")) {
+    delete match.confirmations;
+  }
+
+  return match.votes;
+}
+
+function clearMatchVotes(match) {
+  if (!match || typeof match !== "object" || Array.isArray(match)) {
     return;
   }
-  match.confirmations = {};
+  match.votes = createEmptyMatchVotes();
+  if (Object.prototype.hasOwnProperty.call(match, "confirmations")) {
+    delete match.confirmations;
+  }
 }
 
-function normalizeMatchConfirmations(match) {
-  const confirmations = ensureMatchConfirmations(match);
-  const allowedKeys = new Set();
-
-  const nameA = normalizeName(match.players?.[0]);
-  const nameB = normalizeName(match.players?.[1]);
-  if (nameA) {
-    allowedKeys.add(nameA.toLowerCase());
-  }
-  if (nameB) {
-    allowedKeys.add(nameB.toLowerCase());
+function normalizeMatchVotes(match) {
+  const votes = ensureMatchVotes(match);
+  if (!match || typeof match !== "object" || Array.isArray(match)) {
+    return votes;
   }
 
-  const cleaned = {};
-  for (const [key, selectedSlot] of Object.entries(confirmations)) {
-    if (!allowedKeys.has(key)) {
-      continue;
-    }
-    if (selectedSlot !== 0 && selectedSlot !== 1) {
-      continue;
-    }
-    cleaned[key] = selectedSlot;
+  const hasPlayerA = Boolean(normalizeName(match.players?.[0]));
+  const hasPlayerB = Boolean(normalizeName(match.players?.[1]));
+  const cleanedVotes = createEmptyMatchVotes();
+
+  if (hasPlayerA && hasPlayerB) {
+    cleanedVotes[0] = normalizeVoteSlot(votes[0]);
+    cleanedVotes[1] = normalizeVoteSlot(votes[1]);
   }
 
-  match.confirmations = cleaned;
+  match.votes = cleanedVotes;
+  if (Object.prototype.hasOwnProperty.call(match, "confirmations")) {
+    delete match.confirmations;
+  }
+
+  return match.votes;
 }
 
 function confirmationOutcome(match) {
-  normalizeMatchConfirmations(match);
-  const confirmations = ensureMatchConfirmations(match);
-  const nameA = normalizeName(match.players?.[0]);
-  const nameB = normalizeName(match.players?.[1]);
-  const keyA = nameA ? nameA.toLowerCase() : "";
-  const keyB = nameB ? nameB.toLowerCase() : "";
-  const voteA = keyA ? confirmations[keyA] : null;
-  const voteB = keyB ? confirmations[keyB] : null;
+  const votes = normalizeMatchVotes(match);
+  const voteA = normalizeVoteSlot(votes[0]);
+  const voteB = normalizeVoteSlot(votes[1]);
   const hasVoteA = voteA === 0 || voteA === 1;
   const hasVoteB = voteB === 0 || voteB === 1;
 
   if (hasVoteA && hasVoteB) {
     if (voteA === voteB) {
-      return { state: "agreed", slotIndex: voteA };
+      return { state: "agreed", slotIndex: voteA, waitingFor: "", waitingSlot: null };
     }
-    return { state: "conflict", slotIndex: null, waitingFor: "" };
+    return { state: "conflict", slotIndex: null, waitingFor: "", waitingSlot: null };
   }
 
   if (hasVoteA || hasVoteB) {
+    const waitingSlot = hasVoteA ? 1 : 0;
     return {
       state: "pending",
       slotIndex: null,
-      waitingFor: hasVoteA ? nameB : nameA
+      waitingFor: normalizeName(match.players?.[waitingSlot]),
+      waitingSlot
     };
   }
 
-  return { state: "none", slotIndex: null, waitingFor: "" };
+  return { state: "none", slotIndex: null, waitingFor: "", waitingSlot: null };
 }
 
 function localPlayerSlotInMatch(match, playerName) {
@@ -1523,13 +1578,13 @@ function canLocalPlayerVoteMatch(match) {
 }
 
 function localPlayerVoteForMatch(match) {
-  const name = normalizeName(localJoinedName);
-  if (!name) {
+  const localSlot = localPlayerSlotInMatch(match, localJoinedName);
+  if (localSlot < 0) {
     return null;
   }
 
-  normalizeMatchConfirmations(match);
-  const vote = ensureMatchConfirmations(match)[name.toLowerCase()];
+  const votes = normalizeMatchVotes(match);
+  const vote = normalizeVoteSlot(votes[localSlot]);
   return vote === 0 || vote === 1 ? vote : null;
 }
 
@@ -1670,10 +1725,10 @@ function applyMatchFromFeeds(match, feedA, feedB) {
     match.players = nextPlayers;
     match.slotReady = nextReady;
     match.winnerIndex = null;
-    clearMatchConfirmations(match);
+    clearMatchVotes(match);
   } else {
     match.slotReady = nextReady;
-    normalizeMatchConfirmations(match);
+    normalizeMatchVotes(match);
   }
 
   match.seeds = [null, null];
@@ -1681,6 +1736,8 @@ function applyMatchFromFeeds(match, feedA, feedB) {
 }
 
 function sanitizeMatch(match, isFirstRound) {
+  const priorWinnerIndex = match.winnerIndex;
+
   if (!Array.isArray(match.players) || match.players.length !== 2) {
     match.players = ["", ""];
   }
@@ -1723,11 +1780,11 @@ function sanitizeMatch(match, isFirstRound) {
     }
   }
 
-  normalizeMatchConfirmations(match);
+  normalizeMatchVotes(match);
 
   const hasTwoNamedPlayers = Boolean(match.players[0] && match.players[1]);
   if (!hasTwoNamedPlayers) {
-    clearMatchConfirmations(match);
+    clearMatchVotes(match);
   }
 
   if (match.winnerIndex !== 0 && match.winnerIndex !== 1) {
@@ -1742,7 +1799,12 @@ function sanitizeMatch(match, isFirstRound) {
   }
 
   if (match.winnerIndex !== null) {
-    clearMatchConfirmations(match);
+    clearMatchVotes(match);
+    return;
+  }
+
+  if (priorWinnerIndex !== null) {
+    clearMatchVotes(match);
   }
 }
 
@@ -1755,39 +1817,39 @@ function applyAutoAdvance(match, isFirstRound) {
 
   if (byeA && readyB && b) {
     match.winnerIndex = 1;
-    clearMatchConfirmations(match);
+    clearMatchVotes(match);
     return;
   }
 
   if (byeB && readyA && a) {
     match.winnerIndex = 0;
-    clearMatchConfirmations(match);
+    clearMatchVotes(match);
     return;
   }
 
   if (!readyA || !readyB) {
     if (!a || !b) {
       match.winnerIndex = null;
-      clearMatchConfirmations(match);
+      clearMatchVotes(match);
     }
     return;
   }
 
   if (a && !b) {
     match.winnerIndex = 0;
-    clearMatchConfirmations(match);
+    clearMatchVotes(match);
     return;
   }
 
   if (!a && b) {
     match.winnerIndex = 1;
-    clearMatchConfirmations(match);
+    clearMatchVotes(match);
     return;
   }
 
   if (!a && !b) {
     match.winnerIndex = null;
-    clearMatchConfirmations(match);
+    clearMatchVotes(match);
   }
 }
 
@@ -2478,13 +2540,21 @@ function matchStatus(match, isEntryRound) {
 
   if (match.winnerIndex === null) {
     const outcome = confirmationOutcome(match);
+    const localSlot = localPlayerSlotInMatch(match, localJoinedName);
+    const localVote = localSlot >= 0 ? localPlayerVoteForMatch(match) : null;
     if (outcome.state === "conflict") {
-      return "Conflicting confirmations. Both players must agree or admin sets winner.";
+      return "Conflicting confirmations. Players picked different winners.";
     }
     if (outcome.state === "pending") {
+      if (localSlot >= 0 && localVote !== null) {
+        return "Waiting for opponent confirmation.";
+      }
+      if (localSlot >= 0 && outcome.waitingSlot === localSlot) {
+        return "Opponent voted. Confirm winner to finalize.";
+      }
       return outcome.waitingFor
         ? `Waiting for ${outcome.waitingFor} confirmation.`
-        : "Waiting for player confirmation.";
+        : "Waiting for opponent confirmation.";
     }
     if (isAdminUnlocked) {
       return "Admin can set winner, or both players can confirm.";
@@ -2786,16 +2856,40 @@ function coerceStateObject(parsed) {
     ? parsed.bracketSize
     : nextPowerOfTwo(playerCount);
 
+  const rounds = Array.isArray(parsed.rounds) ? parsed.rounds : [];
+  const losersRounds = Array.isArray(parsed.losersRounds) ? parsed.losersRounds : [];
+  const grandFinals = Array.isArray(parsed.grandFinals) ? parsed.grandFinals : [];
+
+  coerceMatchVoteCollections(rounds);
+  coerceMatchVoteCollections(losersRounds);
+  coerceMatchVoteCollections(grandFinals);
+
   return {
     playerCount,
     eliminationMode,
     bracketSize,
     tournamentStarted,
     lobbyPlayers: lobbyPlayers.slice(0, MAX_PLAYERS),
-    rounds: Array.isArray(parsed.rounds) ? parsed.rounds : [],
-    losersRounds: Array.isArray(parsed.losersRounds) ? parsed.losersRounds : [],
-    grandFinals: Array.isArray(parsed.grandFinals) ? parsed.grandFinals : []
+    rounds,
+    losersRounds,
+    grandFinals
   };
+}
+
+function coerceMatchVoteCollections(collection) {
+  if (!Array.isArray(collection)) {
+    return;
+  }
+
+  for (const item of collection) {
+    if (Array.isArray(item)) {
+      for (const match of item) {
+        normalizeMatchVotes(match);
+      }
+      continue;
+    }
+    normalizeMatchVotes(item);
+  }
 }
 
 function getDeviceId() {
