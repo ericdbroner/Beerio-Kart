@@ -3,18 +3,44 @@ const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 256;
 const DEFAULT_PLAYERS = 16;
 const DEFAULT_MODE = "single";
+const DEFAULT_TOURNAMENT_ID = "live";
+const CLOUD_SCHEMA_VERSION = 1;
+const CLOUD_SYNC_DEBOUNCE_MS = 250;
+const DEVICE_ID_KEY = "beerio-kart-device-id";
+const JOINED_LOBBY_NAME_KEY = "beerio-kart-joined-name";
+const DEFAULT_ADMIN_PASSWORD = "B33r10k@rt";
+const ACTION_SOUND_SRC = "assets/wolfy_sanic-collect-ring-15982.mp3";
+const ACTION_SOUND_POOL_SIZE = 4;
+const MOBILE_BREAKPOINT_PX = 760;
 
 const els = {
+  adminPassword: document.querySelector("#admin-password"),
+  adminLogin: document.querySelector("#admin-login"),
+  adminLogout: document.querySelector("#admin-logout"),
+  adminStatus: document.querySelector("#admin-status"),
+  adminOnlyBlocks: Array.from(document.querySelectorAll(".admin-only")),
   settingsPanel: document.querySelector("#settings-panel"),
   decreaseCount: document.querySelector("#decrease-count"),
   increaseCount: document.querySelector("#increase-count"),
   playerCount: document.querySelector("#player-count"),
   eliminationMode: document.querySelector("#elimination-mode"),
   updateBracket: document.querySelector("#update-bracket"),
+  startTournament: document.querySelector("#start-tournament"),
+  joinName: document.querySelector("#join-name"),
+  joinLobby: document.querySelector("#join-lobby"),
+  joinStatus: document.querySelector("#join-status"),
+  lobbyRoster: document.querySelector("#lobby-roster"),
+  lobbyPlayers: document.querySelector("#lobby-players"),
+  lobbyStatus: document.querySelector("#lobby-status"),
+  tournamentId: document.querySelector("#tournament-id"),
+  joinTournament: document.querySelector("#join-tournament"),
+  copyLink: document.querySelector("#copy-link"),
+  syncStatus: document.querySelector("#sync-status"),
   meta: document.querySelector("#meta"),
   bracketShell: document.querySelector("#bracket-shell"),
   empty: document.querySelector("#empty"),
   bracketViewport: document.querySelector("#bracket-viewport"),
+  mobileBracket: document.querySelector("#mobile-bracket"),
   bracketCanvas: document.querySelector("#bracket-canvas"),
   bracket: document.querySelector("#bracket"),
   leftSide: document.querySelector("#left-side"),
@@ -28,6 +54,21 @@ const els = {
 let notice = "";
 let pendingFitFrame = null;
 let bracketResizeObserver = null;
+let cloudSyncTimer = null;
+let cloudApplyingRemote = false;
+let cloudInitialReadComplete = false;
+let cloudEnabled = false;
+let cloudDatabase = null;
+let cloudRef = null;
+let cloudListener = null;
+let activeTournamentId = DEFAULT_TOURNAMENT_ID;
+const deviceId = getDeviceId();
+let isAdminUnlocked = false;
+const actionSoundPool = createActionSoundPool();
+let actionSoundIndex = 0;
+let wasMobileView = null;
+let localJoinedName = loadJoinedLobbyName();
+let joinPending = false;
 
 let state = loadState() || createDefaultState();
 
@@ -42,12 +83,20 @@ function boot() {
 
   els.playerCount.value = String(state.playerCount);
   els.eliminationMode.value = state.eliminationMode;
+  syncLobbyTextFromState();
+  bindGlobalActionSound();
 
   els.decreaseCount.addEventListener("click", () => {
+    if (!isAdminUnlocked) {
+      return;
+    }
     stepPlayerCount(-1);
   });
 
   els.increaseCount.addEventListener("click", () => {
+    if (!isAdminUnlocked) {
+      return;
+    }
     stepPlayerCount(1);
   });
 
@@ -60,16 +109,85 @@ function boot() {
   });
 
   els.updateBracket.addEventListener("click", () => {
+    if (!isAdminUnlocked) {
+      notice = "Admin unlock required to update bracket settings.";
+      renderMeta();
+      return;
+    }
     applyPendingSettings();
+  });
+
+  els.startTournament.addEventListener("click", () => {
+    startTournamentFromLobby();
+  });
+
+  els.joinLobby.addEventListener("click", () => {
+    joinLobbyFromInput();
+  });
+
+  els.joinName.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      joinLobbyFromInput();
+    }
+  });
+
+  els.lobbyPlayers.addEventListener("input", () => {
+    if (!isAdminUnlocked || state.tournamentStarted) {
+      syncLobbyTextFromState();
+      return;
+    }
+    state.lobbyPlayers = parseLobbyPlayers(els.lobbyPlayers.value, state.playerCount);
+    notice = "Lobby updated.";
+    persistState();
+    renderLobbyStatus();
+    renderMeta();
+  });
+
+  els.joinTournament.addEventListener("click", () => {
+    if (!isAdminUnlocked) {
+      notice = "Admin unlock required to change tournament ID.";
+      renderMeta();
+      return;
+    }
+    applyTournamentFromInput();
+  });
+
+  els.tournamentId.addEventListener("change", () => {
+    normalizeTournamentInput();
+  });
+
+  els.copyLink.addEventListener("click", () => {
+    copyShareLink();
+  });
+
+  els.adminLogin.addEventListener("click", () => {
+    unlockAdminPanel();
+  });
+
+  els.adminPassword.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      playActionSound();
+      unlockAdminPanel();
+    }
+  });
+
+  els.adminLogout.addEventListener("click", () => {
+    lockAdminPanel();
   });
 
   els.bracket.addEventListener("click", handleBracketClick);
   els.bracket.addEventListener("change", handleBracketChange);
 
-  window.addEventListener("resize", scheduleBracketFit);
+  initCloudSync();
+  lockAdminPanel();
+
+  wasMobileView = isMobileView();
+  window.addEventListener("resize", handleViewportResize);
   if (typeof window.ResizeObserver === "function") {
     bracketResizeObserver = new window.ResizeObserver(() => {
-      scheduleBracketFit();
+      if (!isMobileView()) {
+        scheduleBracketFit();
+      }
     });
     bracketResizeObserver.observe(els.bracketShell);
   }
@@ -87,15 +205,745 @@ function boot() {
   render();
 }
 
+function createActionSoundPool() {
+  const pool = [];
+
+  if (typeof window.Audio !== "function") {
+    return pool;
+  }
+
+  for (let index = 0; index < ACTION_SOUND_POOL_SIZE; index += 1) {
+    const audio = new Audio(ACTION_SOUND_SRC);
+    audio.preload = "auto";
+    pool.push(audio);
+  }
+
+  return pool;
+}
+
+function playActionSound() {
+  if (!actionSoundPool.length) {
+    return;
+  }
+
+  const audio = actionSoundPool[actionSoundIndex];
+  actionSoundIndex = (actionSoundIndex + 1) % actionSoundPool.length;
+
+  try {
+    audio.currentTime = 0;
+    const result = audio.play();
+    if (result && typeof result.catch === "function") {
+      result.catch(() => {
+        // Ignore autoplay/interrupt errors.
+      });
+    }
+  } catch (_error) {
+    // Ignore playback errors.
+  }
+}
+
+function bindGlobalActionSound() {
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("button")) {
+      playActionSound();
+    }
+  });
+
+  document.addEventListener("change", (event) => {
+    const field = event.target.closest("input, select, textarea");
+    if (field) {
+      playActionSound();
+    }
+  });
+}
+
 function createDefaultState() {
   return {
     playerCount: DEFAULT_PLAYERS,
     eliminationMode: DEFAULT_MODE,
     bracketSize: nextPowerOfTwo(DEFAULT_PLAYERS),
+    tournamentStarted: false,
+    lobbyPlayers: createEmptyLobbyPlayers(DEFAULT_PLAYERS),
     rounds: [],
     losersRounds: [],
     grandFinals: []
   };
+}
+
+function loadJoinedLobbyName() {
+  try {
+    return normalizeName(localStorage.getItem(JOINED_LOBBY_NAME_KEY) || "");
+  } catch (_error) {
+    return "";
+  }
+}
+
+function saveJoinedLobbyName(name) {
+  const normalized = normalizeName(name);
+  localJoinedName = normalized;
+  try {
+    if (normalized) {
+      localStorage.setItem(JOINED_LOBBY_NAME_KEY, normalized);
+    } else {
+      localStorage.removeItem(JOINED_LOBBY_NAME_KEY);
+    }
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function getAdminPassword() {
+  const configured = String(window.BEERIO_ADMIN_PASSWORD || "").trim();
+  return configured || DEFAULT_ADMIN_PASSWORD;
+}
+
+function unlockAdminPanel() {
+  const entered = String(els.adminPassword.value || "");
+  if (entered !== getAdminPassword()) {
+    notice = "Incorrect admin password.";
+    renderMeta();
+    return;
+  }
+
+  isAdminUnlocked = true;
+  els.adminPassword.value = "";
+  els.adminPassword.disabled = true;
+  els.adminLogin.classList.add("hidden");
+  els.adminLogout.classList.remove("hidden");
+  els.adminStatus.textContent = "Admin unlocked";
+  els.adminStatus.classList.add("unlocked");
+  refreshAdminControls();
+  notice = "Admin controls unlocked.";
+  renderMeta();
+}
+
+function lockAdminPanel() {
+  isAdminUnlocked = false;
+  els.adminPassword.disabled = false;
+  els.adminLogin.classList.remove("hidden");
+  els.adminLogout.classList.add("hidden");
+  els.adminStatus.textContent = "Viewer mode";
+  els.adminStatus.classList.remove("unlocked");
+  refreshAdminControls();
+}
+
+function refreshAdminControls() {
+  for (const node of els.adminOnlyBlocks) {
+    node.classList.toggle("locked", !isAdminUnlocked);
+  }
+
+  els.decreaseCount.disabled = !isAdminUnlocked;
+  els.increaseCount.disabled = !isAdminUnlocked;
+  els.playerCount.disabled = !isAdminUnlocked;
+  els.eliminationMode.disabled = !isAdminUnlocked;
+  els.updateBracket.disabled = !isAdminUnlocked;
+  els.tournamentId.disabled = !isAdminUnlocked;
+  els.joinTournament.disabled = !isAdminUnlocked || !cloudEnabled;
+  els.startTournament.disabled = !isAdminUnlocked || state.tournamentStarted;
+  els.lobbyPlayers.disabled = !isAdminUnlocked || state.tournamentStarted;
+
+  refreshSettingsControls();
+  renderLobbyStatus();
+}
+
+function createEmptyLobbyPlayers(playerCount) {
+  return new Array(playerCount).fill("");
+}
+
+function parseLobbyPlayers(rawText, playerCount) {
+  const lines = String(rawText || "")
+    .split("\n")
+    .map((line) => normalizeName(line))
+    .filter(Boolean);
+
+  const unique = dedupeNames(lines);
+  const result = createEmptyLobbyPlayers(playerCount);
+  for (let index = 0; index < Math.min(playerCount, unique.length); index += 1) {
+    result[index] = unique[index];
+  }
+  return result;
+}
+
+function dedupeNames(names) {
+  const seen = new Map();
+  return names.map((name) => {
+    const key = name.toLowerCase();
+    const nextCount = (seen.get(key) || 0) + 1;
+    seen.set(key, nextCount);
+    if (nextCount === 1) {
+      return name;
+    }
+    return `${name} (${nextCount})`;
+  });
+}
+
+function syncLobbyTextFromState() {
+  const lobbyPlayers = Array.isArray(state.lobbyPlayers) ? state.lobbyPlayers : [];
+  const filled = lobbyPlayers.map((name) => normalizeName(name)).filter(Boolean);
+  els.lobbyPlayers.value = filled.join("\n");
+}
+
+function renderLobbyStatus() {
+  const lobbyPlayers = normalizedLobbyPlayers(state.lobbyPlayers, state.playerCount);
+  const filled = lobbyPlayers.filter((name) => Boolean(normalizeName(name))).length;
+  const needed = state.playerCount;
+  renderLobbyRoster(lobbyPlayers);
+  renderJoinControls(lobbyPlayers);
+
+  if (state.tournamentStarted) {
+    els.startTournament.textContent = "Tournament Started";
+    els.lobbyStatus.textContent = `Tournament started with ${filled}/${needed} seeded players.`;
+    return;
+  }
+
+  els.startTournament.textContent = "Seed Players and Begin Tournament";
+  els.lobbyStatus.textContent = `Lobby ready: ${filled}/${needed} players entered.`;
+}
+
+function renderLobbyRoster(lobbyPlayers) {
+  els.lobbyRoster.replaceChildren();
+
+  for (let index = 0; index < state.playerCount; index += 1) {
+    const li = document.createElement("li");
+    const entry = normalizeName(lobbyPlayers[index]);
+
+    if (entry) {
+      li.textContent = entry;
+    } else {
+      li.textContent = `Open spot ${index + 1}`;
+      li.classList.add("open");
+    }
+
+    if (entry && localJoinedName && entry.toLowerCase() === localJoinedName.toLowerCase()) {
+      li.classList.add("self");
+      li.textContent = `${entry} (you)`;
+    }
+
+    els.lobbyRoster.appendChild(li);
+  }
+}
+
+function renderJoinControls(lobbyPlayers) {
+  const filled = lobbyPlayers.filter((name) => Boolean(normalizeName(name))).length;
+  const full = filled >= state.playerCount;
+  const started = state.tournamentStarted;
+  const joinedIndex = findLobbyIndexByName(lobbyPlayers, localJoinedName);
+
+  if (localJoinedName) {
+    els.joinName.value = localJoinedName;
+  }
+
+  els.joinName.disabled = started || joinPending;
+  els.joinLobby.disabled = started || full || joinPending;
+
+  if (started) {
+    setJoinStatus("Tournament already started.", "warn");
+    return;
+  }
+
+  if (joinPending) {
+    setJoinStatus("Joining lobby...", "good");
+    return;
+  }
+
+  if (joinedIndex >= 0) {
+    setJoinStatus(`You are joined as ${lobbyPlayers[joinedIndex]}.`, "good");
+    return;
+  }
+
+  if (full) {
+    setJoinStatus("Lobby is full.", "warn");
+    return;
+  }
+
+  setJoinStatus("Enter your name and tap Join.", "");
+}
+
+function setJoinStatus(text, mode) {
+  els.joinStatus.textContent = text;
+  els.joinStatus.classList.remove("good", "warn");
+  if (mode) {
+    els.joinStatus.classList.add(mode);
+  }
+}
+
+function normalizedLobbyPlayers(rawPlayers, playerCount) {
+  const result = createEmptyLobbyPlayers(playerCount);
+  const list = Array.isArray(rawPlayers) ? rawPlayers : [];
+  for (let index = 0; index < Math.min(playerCount, list.length); index += 1) {
+    result[index] = normalizeName(list[index]);
+  }
+  return result;
+}
+
+function findLobbyIndexByName(players, name) {
+  const target = normalizeName(name).toLowerCase();
+  if (!target) {
+    return -1;
+  }
+
+  return players.findIndex((entry) => normalizeName(entry).toLowerCase() === target);
+}
+
+function joinLobbyFromInput() {
+  const desiredName = normalizeName(els.joinName.value);
+  if (!desiredName) {
+    setJoinStatus("Enter your name first.", "warn");
+    return;
+  }
+
+  if (state.tournamentStarted) {
+    setJoinStatus("Tournament already started.", "warn");
+    return;
+  }
+
+  if (cloudEnabled && cloudRef) {
+    joinLobbyViaCloud(desiredName);
+    return;
+  }
+
+  const result = applyLobbyJoinToState(state, desiredName, localJoinedName);
+  handleLocalJoinResult(result);
+}
+
+function handleLocalJoinResult(result) {
+  if (!result.ok) {
+    setJoinStatus(joinFailureMessage(result.reason), "warn");
+    return;
+  }
+
+  saveJoinedLobbyName(result.joinedName);
+  persistState();
+  render();
+}
+
+function joinLobbyViaCloud(desiredName) {
+  if (!cloudRef) {
+    setJoinStatus("Cloud connection not ready yet.", "warn");
+    return;
+  }
+
+  joinPending = true;
+  renderLobbyStatus();
+  let pendingResult = { ok: false, reason: "unknown" };
+
+  cloudRef.transaction((currentValue) => {
+    const currentPayload = currentValue && typeof currentValue === "object"
+      ? { ...currentValue }
+      : {};
+    const baselineState = coerceStateObject(currentPayload.state) || coerceStateObject(state) || createDefaultState();
+    pendingResult = applyLobbyJoinToState(baselineState, desiredName, localJoinedName);
+
+    if (!pendingResult.ok) {
+      return;
+    }
+
+    currentPayload.schemaVersion = CLOUD_SCHEMA_VERSION;
+    currentPayload.updatedAt = Date.now();
+    currentPayload.updatedBy = deviceId;
+    currentPayload.state = cloneStateForCloud(baselineState);
+    return currentPayload;
+  }, (error, committed) => {
+    joinPending = false;
+
+    if (error) {
+      setJoinStatus("Unable to join right now. Try again.", "warn");
+      renderLobbyStatus();
+      return;
+    }
+
+    if (!committed || !pendingResult.ok) {
+      setJoinStatus(joinFailureMessage(pendingResult.reason), "warn");
+      renderLobbyStatus();
+      return;
+    }
+
+    saveJoinedLobbyName(pendingResult.joinedName);
+    setJoinStatus(`Joined as ${pendingResult.joinedName}.`, "good");
+    renderLobbyStatus();
+  }, false);
+}
+
+function applyLobbyJoinToState(targetState, desiredName, priorName) {
+  const nextName = normalizeName(desiredName);
+  if (!nextName) {
+    return { ok: false, reason: "invalid" };
+  }
+
+  if (targetState.tournamentStarted) {
+    return { ok: false, reason: "started" };
+  }
+
+  const lobbyPlayers = normalizedLobbyPlayers(targetState.lobbyPlayers, targetState.playerCount);
+  const priorIndex = findLobbyIndexByName(lobbyPlayers, priorName);
+  const nameIndex = findLobbyIndexByName(lobbyPlayers, nextName);
+
+  if (nameIndex >= 0 && nameIndex !== priorIndex) {
+    return { ok: false, reason: "taken" };
+  }
+
+  if (priorIndex >= 0) {
+    lobbyPlayers[priorIndex] = nextName;
+    targetState.lobbyPlayers = lobbyPlayers;
+    return { ok: true, joinedName: nextName };
+  }
+
+  if (nameIndex >= 0) {
+    targetState.lobbyPlayers = lobbyPlayers;
+    return { ok: true, joinedName: nextName };
+  }
+
+  const emptyIndex = lobbyPlayers.findIndex((name) => !normalizeName(name));
+  if (emptyIndex < 0) {
+    return { ok: false, reason: "full" };
+  }
+
+  lobbyPlayers[emptyIndex] = nextName;
+  targetState.lobbyPlayers = lobbyPlayers;
+  return { ok: true, joinedName: nextName };
+}
+
+function joinFailureMessage(reason) {
+  if (reason === "started") {
+    return "Tournament already started.";
+  }
+  if (reason === "taken") {
+    return "That name is already in the lobby.";
+  }
+  if (reason === "full") {
+    return "Lobby is full.";
+  }
+  return "Unable to join lobby.";
+}
+
+function startTournamentFromLobby() {
+  if (!isAdminUnlocked) {
+    notice = "Admin unlock required to start the tournament.";
+    renderMeta();
+    return;
+  }
+
+  if (state.tournamentStarted) {
+    notice = "Tournament already started.";
+    renderMeta();
+    return;
+  }
+
+  const seededPlayers = normalizedLobbyPlayers(state.lobbyPlayers, state.playerCount).filter(Boolean);
+  if (seededPlayers.length !== state.playerCount) {
+    notice = `Enter exactly ${state.playerCount} unique player names in lobby before starting.`;
+    renderLobbyStatus();
+    renderMeta();
+    return;
+  }
+
+  const randomized = shuffleCopy(seededPlayers);
+  state.lobbyPlayers = randomized.slice();
+  state.tournamentStarted = true;
+  seedPlayersIntoFirstRound(randomized);
+  recalculateBracket();
+  persistState();
+  notice = "Tournament started. Players seeded randomly.";
+  render();
+}
+
+function seedPlayersIntoFirstRound(randomizedPlayers) {
+  const playerBySeed = new Map();
+  for (let index = 0; index < randomizedPlayers.length; index += 1) {
+    playerBySeed.set(index + 1, randomizedPlayers[index]);
+  }
+
+  const firstRound = state.rounds[0] || [];
+  for (const match of firstRound) {
+    for (let slotIndex = 0; slotIndex < 2; slotIndex += 1) {
+      const seed = normalizeSeed(match.seeds[slotIndex]);
+      const locked = Boolean(match.locked[slotIndex]);
+      if (locked || seed === null || seed > randomizedPlayers.length) {
+        match.players[slotIndex] = "";
+        match.slotReady[slotIndex] = true;
+      } else {
+        match.players[slotIndex] = playerBySeed.get(seed) || "";
+        match.slotReady[slotIndex] = Boolean(match.players[slotIndex]);
+      }
+    }
+    match.winnerIndex = null;
+  }
+}
+
+function shuffleCopy(items) {
+  const copy = items.slice();
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+  }
+  return copy;
+}
+
+function initCloudSync() {
+  const initialTournamentId = getInitialTournamentId();
+  activeTournamentId = initialTournamentId;
+  els.tournamentId.value = initialTournamentId;
+  updateShareUrl(initialTournamentId);
+
+  const firebaseConfig = window.BEERIO_FIREBASE_CONFIG;
+  const firebaseAvailable = Boolean(window.firebase?.database);
+
+  if (!firebaseAvailable || !hasValidFirebaseConfig(firebaseConfig)) {
+    cloudEnabled = false;
+    els.joinTournament.disabled = true;
+    setCloudStatus("Cloud sync: local only (add Firebase config)", "offline");
+    return;
+  }
+
+  try {
+    if (!window.firebase.apps.length) {
+      window.firebase.initializeApp(firebaseConfig);
+    }
+    cloudDatabase = window.firebase.database();
+    cloudEnabled = true;
+    els.joinTournament.disabled = false;
+    setCloudStatus(`Cloud sync: connecting (${initialTournamentId})...`, "offline");
+    connectToTournament(initialTournamentId);
+  } catch (_error) {
+    cloudEnabled = false;
+    els.joinTournament.disabled = true;
+    setCloudStatus("Cloud sync: unavailable (Firebase init failed)", "offline");
+  }
+}
+
+function applyTournamentFromInput() {
+  const nextTournamentId = sanitizeTournamentId(els.tournamentId.value) || DEFAULT_TOURNAMENT_ID;
+  els.tournamentId.value = nextTournamentId;
+
+  if (!cloudEnabled) {
+    notice = "Cloud sync is disabled until Firebase is configured.";
+    renderMeta();
+    return;
+  }
+
+  if (nextTournamentId === activeTournamentId) {
+    notice = "Already connected to this tournament.";
+    renderMeta();
+    return;
+  }
+
+  if (hasEnteredPlayerNames()) {
+    const confirmed = window.confirm(
+      "Switching tournament ID will replace this view with shared bracket data. Continue?"
+    );
+    if (!confirmed) {
+      els.tournamentId.value = activeTournamentId;
+      return;
+    }
+  }
+
+  connectToTournament(nextTournamentId);
+}
+
+function normalizeTournamentInput() {
+  const normalized = sanitizeTournamentId(els.tournamentId.value) || DEFAULT_TOURNAMENT_ID;
+  els.tournamentId.value = normalized;
+}
+
+function connectToTournament(tournamentId) {
+  if (!cloudEnabled || !cloudDatabase) {
+    return;
+  }
+
+  const normalizedId = sanitizeTournamentId(tournamentId) || DEFAULT_TOURNAMENT_ID;
+  activeTournamentId = normalizedId;
+  els.tournamentId.value = normalizedId;
+  updateShareUrl(normalizedId);
+
+  cloudInitialReadComplete = false;
+
+  if (cloudRef && cloudListener) {
+    cloudRef.off("value", cloudListener);
+  }
+
+  cloudRef = cloudDatabase.ref(`tournaments/${normalizedId}`);
+
+  let firstEvent = true;
+  cloudListener = (snapshot) => {
+    const payload = snapshot.val();
+    const remoteState = payload && typeof payload === "object" ? payload.state : null;
+
+    if (firstEvent) {
+      cloudInitialReadComplete = true;
+    }
+
+    if (remoteState && typeof remoteState === "object") {
+      applyRemoteState(remoteState);
+      setCloudStatus(`Cloud sync: live (${normalizedId})`, "online");
+
+      if (firstEvent) {
+        notice = `Connected to shared bracket "${normalizedId}".`;
+      }
+    } else if (firstEvent) {
+      setCloudStatus(`Cloud sync: live (${normalizedId})`, "online");
+      notice = `Started shared bracket "${normalizedId}".`;
+
+      if (!hasBracketData(state)) {
+        buildNewBracket(
+          DEFAULT_PLAYERS,
+          DEFAULT_MODE,
+          "Loaded default 16-player bracket."
+        );
+      } else {
+        queueCloudSync();
+      }
+    }
+
+    firstEvent = false;
+  };
+
+  cloudRef.on("value", cloudListener, () => {
+    setCloudStatus(`Cloud sync: connection issue (${normalizedId})`, "offline");
+  });
+}
+
+function applyRemoteState(remoteState) {
+  const nextState = coerceStateObject(remoteState);
+  if (!nextState) {
+    return;
+  }
+
+  cloudApplyingRemote = true;
+  state = nextState;
+  els.playerCount.value = String(state.playerCount);
+  els.eliminationMode.value = state.eliminationMode;
+  syncLobbyTextFromState();
+  recalculateBracket();
+  persistLocalState();
+  cloudApplyingRemote = false;
+  render();
+}
+
+function queueCloudSync() {
+  if (!cloudEnabled || !cloudRef || !cloudInitialReadComplete || cloudApplyingRemote) {
+    return;
+  }
+
+  if (cloudSyncTimer !== null) {
+    window.clearTimeout(cloudSyncTimer);
+  }
+
+  cloudSyncTimer = window.setTimeout(() => {
+    cloudSyncTimer = null;
+    pushStateToCloud();
+  }, CLOUD_SYNC_DEBOUNCE_MS);
+}
+
+function pushStateToCloud() {
+  if (!cloudEnabled || !cloudRef || !cloudInitialReadComplete || cloudApplyingRemote) {
+    return;
+  }
+
+  const payload = {
+    schemaVersion: CLOUD_SCHEMA_VERSION,
+    updatedAt: window.firebase.database.ServerValue.TIMESTAMP,
+    updatedBy: deviceId,
+    state: cloneStateForCloud(state)
+  };
+
+  cloudRef.set(payload).then(() => {
+    setCloudStatus(`Cloud sync: live (${activeTournamentId})`, "online");
+  }).catch(() => {
+    setCloudStatus(`Cloud sync: write failed (${activeTournamentId})`, "offline");
+  });
+}
+
+function cloneStateForCloud(sourceState) {
+  return {
+    playerCount: sourceState.playerCount,
+    eliminationMode: sourceState.eliminationMode,
+    bracketSize: sourceState.bracketSize,
+    tournamentStarted: Boolean(sourceState.tournamentStarted),
+    lobbyPlayers: Array.isArray(sourceState.lobbyPlayers) ? sourceState.lobbyPlayers : [],
+    rounds: sourceState.rounds,
+    losersRounds: sourceState.losersRounds,
+    grandFinals: sourceState.grandFinals
+  };
+}
+
+function copyShareLink() {
+  const link = shareLinkForTournament(activeTournamentId);
+
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(link).then(() => {
+      notice = "Share link copied.";
+      renderMeta();
+    }).catch(() => {
+      notice = "Copy failed. Share link is in the address bar.";
+      renderMeta();
+    });
+    return;
+  }
+
+  notice = "Clipboard unavailable. Copy link from address bar.";
+  renderMeta();
+}
+
+function shareLinkForTournament(tournamentId) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("t", tournamentId);
+  return url.toString();
+}
+
+function updateShareUrl(tournamentId) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("t", tournamentId);
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function getInitialTournamentId() {
+  const url = new URL(window.location.href);
+  return sanitizeTournamentId(url.searchParams.get("t")) || DEFAULT_TOURNAMENT_ID;
+}
+
+function sanitizeTournamentId(rawValue) {
+  const normalized = String(rawValue || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "");
+
+  if (!normalized) {
+    return "";
+  }
+
+  return normalized.slice(0, 40);
+}
+
+function hasValidFirebaseConfig(config) {
+  if (!config || typeof config !== "object") {
+    return false;
+  }
+
+  const requiredKeys = ["apiKey", "authDomain", "databaseURL", "projectId", "appId"];
+  for (const key of requiredKeys) {
+    const value = String(config[key] || "");
+    if (!value || value.includes("REPLACE_ME")) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function setCloudStatus(text, mode) {
+  els.syncStatus.textContent = text;
+  els.syncStatus.classList.remove("online", "offline");
+  if (mode === "online") {
+    els.syncStatus.classList.add("online");
+  } else if (mode === "offline") {
+    els.syncStatus.classList.add("offline");
+  }
+}
+
+function hasBracketData(stateValue) {
+  return Boolean(Array.isArray(stateValue?.rounds) && stateValue.rounds.length);
 }
 
 function applyPendingSettings() {
@@ -166,18 +1014,8 @@ function hasPendingSettingChanges() {
 }
 
 function hasEnteredPlayerNames() {
-  const firstRound = state.rounds?.[0] || [];
-  for (const match of firstRound) {
-    for (let slotIndex = 0; slotIndex < 2; slotIndex += 1) {
-      const lockedSlot = Boolean(match.locked?.[slotIndex]);
-      const name = normalizeName(match.players?.[slotIndex]);
-      if (!lockedSlot && name) {
-        return true;
-      }
-    }
-  }
-
-  return false;
+  const lobbyPlayers = Array.isArray(state.lobbyPlayers) ? state.lobbyPlayers : [];
+  return lobbyPlayers.some((name) => Boolean(normalizeName(name)));
 }
 
 function refreshSettingsControls() {
@@ -185,6 +1023,12 @@ function refreshSettingsControls() {
   const hasBracket = Array.isArray(state.rounds) && state.rounds.length > 0;
   const hasPending = hasPendingSettingChanges();
   const namesEntered = hasEnteredPlayerNames();
+
+  if (!isAdminUnlocked) {
+    els.updateBracket.textContent = "Unlock Admin to Update";
+    els.updateBracket.disabled = true;
+    return;
+  }
 
   if (settings.playerCount === null) {
     els.updateBracket.textContent = "Enter Valid Player Count";
@@ -216,16 +1060,19 @@ function buildNewBracket(playerCount, mode, customNotice = "") {
   state.playerCount = playerCount;
   state.eliminationMode = mode;
   state.bracketSize = bracket.bracketSize;
+  state.tournamentStarted = false;
+  state.lobbyPlayers = createEmptyLobbyPlayers(playerCount);
   state.rounds = bracket.rounds;
   state.losersRounds = bracket.losersRounds;
   state.grandFinals = bracket.grandFinals;
 
   els.playerCount.value = String(playerCount);
   els.eliminationMode.value = mode;
+  syncLobbyTextFromState();
 
   const byes = state.bracketSize - state.playerCount;
   const formatLabel = mode === "double" ? "double elimination" : "single elimination";
-  notice = customNotice || `Created ${playerCount}-player ${formatLabel} bracket (${byes} bye${byes === 1 ? "" : "s"}).`;
+  notice = customNotice || `Created ${playerCount}-player ${formatLabel} bracket (${byes} bye${byes === 1 ? "" : "s"}). Fill lobby and start tournament.`;
 
   recalculateBracket();
   persistState();
@@ -353,6 +1200,18 @@ function handleBracketChange(event) {
 function handleBracketClick(event) {
   const button = event.target.closest(".win-btn");
   if (!button) {
+    return;
+  }
+
+  if (!isAdminUnlocked) {
+    notice = "Admin unlock required to record match results.";
+    renderMeta();
+    return;
+  }
+
+  if (!state.tournamentStarted) {
+    notice = "Start the tournament from lobby before recording wins.";
+    renderMeta();
     return;
   }
 
@@ -635,10 +1494,28 @@ function loserFeed(match) {
 }
 
 function render() {
+  reconcileLocalJoinedName();
   renderMeta();
   renderBracket();
   renderChampion();
-  refreshSettingsControls();
+  syncLobbyTextFromState();
+  renderLobbyStatus();
+  refreshAdminControls();
+}
+
+function reconcileLocalJoinedName() {
+  if (!localJoinedName) {
+    return;
+  }
+
+  if (state.tournamentStarted) {
+    return;
+  }
+
+  const lobbyPlayers = normalizedLobbyPlayers(state.lobbyPlayers, state.playerCount);
+  if (findLobbyIndexByName(lobbyPlayers, localJoinedName) < 0) {
+    saveJoinedLobbyName("");
+  }
 }
 
 function renderMeta() {
@@ -650,22 +1527,27 @@ function renderMeta() {
 
   const byes = Math.max(state.bracketSize - state.playerCount, 0);
   const formatLabel = state.eliminationMode === "double" ? "Double" : "Single";
+  const phaseLabel = state.tournamentStarted ? "In Progress" : "Lobby";
   const unresolved = countUnresolvedMatches();
-  const summary = `${state.playerCount} players | ${formatLabel} elimination | ${state.bracketSize}-slot bracket | ${byes} bye${byes === 1 ? "" : "s"} | ${state.rounds.length} winner rounds | ${unresolved} undecided matches`;
+  const summary = `${phaseLabel} | ${state.playerCount} players | ${formatLabel} elimination | ${state.bracketSize}-slot bracket | ${byes} bye${byes === 1 ? "" : "s"} | ${state.rounds.length} winner rounds | ${unresolved} undecided matches`;
   const note = notice ? ` | ${notice}` : "";
   els.meta.textContent = `${summary}${note}`;
 }
 
 function renderBracket() {
   const hasBracket = state.rounds.length > 0;
+  const mobileView = isMobileView();
+  wasMobileView = mobileView;
 
   els.empty.classList.toggle("hidden", hasBracket);
-  els.bracketViewport.classList.toggle("hidden", !hasBracket);
+  els.bracketViewport.classList.toggle("hidden", !hasBracket || mobileView);
+  els.mobileBracket.classList.toggle("hidden", !hasBracket || !mobileView);
 
   els.leftSide.replaceChildren();
   els.rightSide.replaceChildren();
   els.finalSide.replaceChildren();
   els.losersSide.replaceChildren();
+  els.mobileBracket.replaceChildren();
 
   if (!hasBracket) {
     els.bracketCanvas.style.width = "100%";
@@ -673,6 +1555,11 @@ function renderBracket() {
     els.bracket.style.transform = "none";
     els.bracket.style.width = "max-content";
     els.bracket.style.height = "auto";
+    return;
+  }
+
+  if (mobileView) {
+    renderMobileBracket();
     return;
   }
 
@@ -687,6 +1574,119 @@ function renderBracket() {
   scheduleBracketFit();
 }
 
+function renderMobileBracket() {
+  if (state.eliminationMode === "double") {
+    renderMobileDoubleElimination();
+    return;
+  }
+
+  renderMobileSingleElimination();
+}
+
+function renderMobileSingleElimination() {
+  const stage = createMobileStage("Winners Bracket");
+
+  for (let roundIndex = 0; roundIndex < state.rounds.length; roundIndex += 1) {
+    stage.appendChild(buildMobileWinnersRound(roundIndex));
+  }
+
+  els.mobileBracket.appendChild(stage);
+}
+
+function renderMobileDoubleElimination() {
+  const winnersStage = createMobileStage("Winners Bracket");
+  for (let roundIndex = 0; roundIndex < state.rounds.length; roundIndex += 1) {
+    winnersStage.appendChild(buildMobileWinnersRound(roundIndex));
+  }
+  els.mobileBracket.appendChild(winnersStage);
+
+  const losersStage = createMobileStage("Losers Bracket");
+  if (state.losersRounds.length === 0) {
+    const note = document.createElement("p");
+    note.className = "losers-note";
+    note.textContent = "Losers finalist comes from the winners final loser.";
+    losersStage.appendChild(note);
+  } else {
+    for (let roundIndex = 0; roundIndex < state.losersRounds.length; roundIndex += 1) {
+      losersStage.appendChild(buildMobileLosersRound(roundIndex));
+    }
+  }
+  els.mobileBracket.appendChild(losersStage);
+
+  const finalsStage = createMobileStage("Finals");
+  finalsStage.appendChild(buildMobileGrandFinalRound());
+  els.mobileBracket.appendChild(finalsStage);
+}
+
+function createMobileStage(titleText) {
+  const stage = document.createElement("section");
+  stage.className = "mobile-stage";
+
+  const title = document.createElement("h3");
+  title.className = "mobile-stage-title";
+  title.textContent = titleText;
+  stage.appendChild(title);
+
+  return stage;
+}
+
+function buildMobileWinnersRound(roundIndex) {
+  const roundNode = document.createElement("section");
+  roundNode.className = "mobile-round";
+
+  const heading = document.createElement("h4");
+  heading.className = "mobile-round-title";
+  heading.textContent = winnersRoundLabel(roundIndex);
+  roundNode.appendChild(heading);
+
+  const matches = state.rounds[roundIndex] || [];
+  for (let matchIndex = 0; matchIndex < matches.length; matchIndex += 1) {
+    const title = `${winnersRoundLabel(roundIndex)} ${matchIndex + 1}`;
+    roundNode.appendChild(renderMatch("winners", roundIndex, matchIndex, title, false));
+  }
+
+  return roundNode;
+}
+
+function buildMobileLosersRound(roundIndex) {
+  const roundNode = document.createElement("section");
+  roundNode.className = "mobile-round";
+
+  const heading = document.createElement("h4");
+  heading.className = "mobile-round-title";
+  heading.textContent = losersRoundLabel(roundIndex);
+  roundNode.appendChild(heading);
+
+  const matches = state.losersRounds[roundIndex] || [];
+  for (let matchIndex = 0; matchIndex < matches.length; matchIndex += 1) {
+    const title = `${losersRoundLabel(roundIndex)} ${matchIndex + 1}`;
+    roundNode.appendChild(renderMatch("losers", roundIndex, matchIndex, title, false));
+  }
+
+  return roundNode;
+}
+
+function buildMobileGrandFinalRound() {
+  const roundNode = document.createElement("section");
+  roundNode.className = "mobile-round";
+
+  const heading = document.createElement("h4");
+  heading.className = "mobile-round-title";
+  heading.textContent = "Grand Final";
+  roundNode.appendChild(heading);
+  roundNode.appendChild(renderMatch("grand", 0, 0, "Grand Final", false));
+
+  if (shouldShowResetFinal(state.grandFinals[0])) {
+    const resetHeading = document.createElement("h4");
+    resetHeading.className = "mobile-round-title";
+    resetHeading.textContent = "Grand Final Reset";
+    roundNode.appendChild(resetHeading);
+    roundNode.appendChild(renderMatch("grand", 1, 0, "Reset Final", false));
+  }
+
+  return roundNode;
+}
+
 function renderSingleEliminationLayout() {
   els.losersSide.classList.add("hidden");
 
@@ -699,7 +1699,7 @@ function renderSingleEliminationLayout() {
     title.textContent = "Final";
 
     els.finalSide.appendChild(title);
-    els.finalSide.appendChild(renderMatch("winners", 0, 0, "Final", true));
+    els.finalSide.appendChild(renderMatch("winners", 0, 0, "Final", false));
     return;
   }
 
@@ -730,7 +1730,7 @@ function renderDoubleEliminationLayout() {
     title.className = "final-title";
     title.textContent = "Winners Final";
     els.finalSide.appendChild(title);
-    els.finalSide.appendChild(renderMatch("winners", 0, 0, "Winners Final", true));
+    els.finalSide.appendChild(renderMatch("winners", 0, 0, "Winners Final", false));
   } else {
     for (let roundIndex = 0; roundIndex < winnersFinalIndex; roundIndex += 1) {
       els.leftSide.appendChild(buildWinnersRoundColumn(roundIndex, "left"));
@@ -794,7 +1794,7 @@ function buildWinnersRoundColumn(roundIndex, side) {
 
   for (let matchIndex = start; matchIndex < end; matchIndex += 1) {
     const title = `${winnersRoundLabel(roundIndex)} ${matchIndex - start + 1}`;
-    const editableNames = roundIndex === 0;
+    const editableNames = false;
     roundNode.appendChild(renderMatch("winners", roundIndex, matchIndex, title, editableNames));
   }
 
@@ -846,7 +1846,7 @@ function renderMatch(stage, roundIndex, matchIndex, title, editableNames) {
     winBtn.dataset.round = String(roundIndex);
     winBtn.dataset.match = String(matchIndex);
     winBtn.dataset.slot = String(slotIndex);
-    winBtn.disabled = !slotName || !otherName;
+    winBtn.disabled = !slotName || !otherName || !state.tournamentStarted || !isAdminUnlocked;
     winBtn.textContent = isWinner ? "Won" : "Win";
 
     const seedTag = row.querySelector(".seed-tag");
@@ -1089,6 +2089,23 @@ function preferredMatchScale(bracketSize, mode) {
   return Math.max(scale, 0.28);
 }
 
+function isMobileView() {
+  return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`).matches;
+}
+
+function handleViewportResize() {
+  const mobileView = isMobileView();
+  if (wasMobileView === null || mobileView !== wasMobileView) {
+    wasMobileView = mobileView;
+    render();
+    return;
+  }
+
+  if (!mobileView) {
+    scheduleBracketFit();
+  }
+}
+
 function scheduleBracketFit() {
   if (pendingFitFrame !== null) {
     window.cancelAnimationFrame(pendingFitFrame);
@@ -1208,6 +2225,11 @@ function seedText(value) {
 }
 
 function persistState() {
+  persistLocalState();
+  queueCloudSync();
+}
+
+function persistLocalState() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (_error) {
@@ -1223,31 +2245,60 @@ function loadState() {
     }
 
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-
-    const playerCount = parsePlayerCount(
-      parsed.playerCount ?? parsed.teamCount ?? parsed.entrantCount ?? DEFAULT_PLAYERS
-    );
-    if (playerCount === null) {
-      return null;
-    }
-
-    const eliminationMode = normalizeMode(parsed.eliminationMode ?? parsed.format ?? DEFAULT_MODE);
-    const bracketSize = Number.isInteger(parsed.bracketSize) && parsed.bracketSize >= 2
-      ? parsed.bracketSize
-      : nextPowerOfTwo(playerCount);
-
-    return {
-      playerCount,
-      eliminationMode,
-      bracketSize,
-      rounds: Array.isArray(parsed.rounds) ? parsed.rounds : [],
-      losersRounds: Array.isArray(parsed.losersRounds) ? parsed.losersRounds : [],
-      grandFinals: Array.isArray(parsed.grandFinals) ? parsed.grandFinals : []
-    };
+    return coerceStateObject(parsed);
   } catch (_error) {
     return null;
+  }
+}
+
+function coerceStateObject(parsed) {
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+
+  const playerCount = parsePlayerCount(
+    parsed.playerCount ?? parsed.teamCount ?? parsed.entrantCount ?? DEFAULT_PLAYERS
+  );
+  if (playerCount === null) {
+    return null;
+  }
+
+  const eliminationMode = normalizeMode(parsed.eliminationMode ?? parsed.format ?? DEFAULT_MODE);
+  const bracketSize = Number.isInteger(parsed.bracketSize) && parsed.bracketSize >= 2
+    ? parsed.bracketSize
+    : nextPowerOfTwo(playerCount);
+
+  const lobbyPlayers = Array.isArray(parsed.lobbyPlayers)
+    ? parsed.lobbyPlayers.map((name) => normalizeName(name))
+    : createEmptyLobbyPlayers(playerCount);
+
+  while (lobbyPlayers.length < playerCount) {
+    lobbyPlayers.push("");
+  }
+
+  return {
+    playerCount,
+    eliminationMode,
+    bracketSize,
+    tournamentStarted: Boolean(parsed.tournamentStarted),
+    lobbyPlayers: lobbyPlayers.slice(0, playerCount),
+    rounds: Array.isArray(parsed.rounds) ? parsed.rounds : [],
+    losersRounds: Array.isArray(parsed.losersRounds) ? parsed.losersRounds : [],
+    grandFinals: Array.isArray(parsed.grandFinals) ? parsed.grandFinals : []
+  };
+}
+
+function getDeviceId() {
+  try {
+    const existing = localStorage.getItem(DEVICE_ID_KEY);
+    if (existing) {
+      return existing;
+    }
+
+    const generated = `dev-${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(DEVICE_ID_KEY, generated);
+    return generated;
+  } catch (_error) {
+    return `dev-${Math.random().toString(36).slice(2, 10)}`;
   }
 }

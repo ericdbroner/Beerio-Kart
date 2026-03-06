@@ -1,13 +1,17 @@
 # Beerio Kart Redemption
 
-A lightweight single-page web app for running a Beerio Kart tournament bracket.
+Realtime Beerio Kart bracket app with:
+- lobby-first flow,
+- random seeding at tournament start,
+- single or double elimination,
+- password-protected admin controls.
 
 ## Run
 
-No build or install needed.
+No build step required.
 
-1. Open `/Users/ericb/Beerio-Kart/index.html` in a browser.
-2. Or serve it locally:
+1. Open `/Users/ericb/Beerio-Kart/index.html` directly, or
+2. Serve locally:
 
 ```bash
 cd /Users/ericb/Beerio-Kart
@@ -16,21 +20,28 @@ python3 -m http.server 8080
 
 Then open `http://localhost:8080`.
 
-## Use
+## One-Time Setup (Required For Shared Global Bracket)
 
-1. Use the always-visible top controls to set:
-   - player count (with `-` / `+`)
-   - elimination format (single or double)
-2. Click **Update Bracket** to apply settings.
-3. Enter player names directly in the first-round slots.
-4. Click **Win** on each match winner to advance them.
+1. Create a Firebase project.
+2. Enable **Realtime Database**.
+3. Edit `/Users/ericb/Beerio-Kart/firebase-config.js`:
+   - replace all `REPLACE_ME` values with your Firebase web config
+   - keep/change `window.BEERIO_ADMIN_PASSWORD` as desired (currently `B33r10k@rt`)
+4. Deploy to GitHub Pages.
+
+Without Firebase config, the app still works in local-only mode.
+
+## Use Flow
+
+1. Share the tournament link (`?t=<tournament-id>`).
+2. Each participant enters their name in **Join Lobby** and taps **Join**.
+3. Admin unlocks with the password, sets player count/format if needed, then taps **Seed Players and Begin Tournament**.
+   - joined players are shuffled and seeded randomly.
+4. Admin records winners with **Win** buttons.
 
 ## Notes
 
-- Bracket is win/loss only (no scoring).
-- Supports single and double elimination.
-- Non-power-of-2 player counts are supported with automatic seeded byes.
-- After names are entered, settings changes require explicit **Update Bracket** confirmation.
-- Bracket view auto-scales match cards to fit inside the main bracket card on different displays.
-- State is auto-saved in browser local storage.
-- Headings use `assets/mario_kart_f2.ttf`.
+- Byes are automatic for non-power-of-2 player counts.
+- Double elimination includes winners bracket, losers bracket, grand final, and reset final.
+- Non-admin viewers can join the lobby, but only admin can start/update/report matches.
+- Mobile uses a dedicated stacked bracket layout that fits phone browser width.

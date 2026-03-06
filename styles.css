@@ -87,6 +87,15 @@ body {
   padding: 0.8rem;
 }
 
+.toolbar h2,
+.lobby-panel h2 {
+  margin: 0;
+  font-family: "Mario Kart", "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--dark-green) 82%, var(--kimberly));
+}
+
 button,
 input,
 select {
@@ -117,6 +126,40 @@ button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+.admin-auth {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tulip-tree) 14%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 45%, white);
+}
+
+.admin-auth label {
+  font-weight: 700;
+}
+
+.admin-auth input {
+  border: 1px solid color-mix(in srgb, var(--line) 70%, white);
+  border-radius: 8px;
+  padding: 0.36rem 0.45rem;
+  background: #fff;
+  color: var(--ink);
+  width: 7rem;
+}
+
+.admin-status {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.admin-status.unlocked {
+  color: var(--green);
 }
 
 .settings {
@@ -172,9 +215,166 @@ button.primary {
   min-width: 12.5rem;
 }
 
+.sync-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--lawn-green) 8%, white);
+  border: 1px solid color-mix(in srgb, var(--line) 45%, white);
+}
+
+.sync-controls label {
+  font-weight: 700;
+  color: color-mix(in srgb, var(--dark-green) 82%, var(--kimberly));
+}
+
+#tournament-id {
+  width: 8.5rem;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, white);
+  border-radius: 8px;
+  padding: 0.36rem 0.45rem;
+  background: #fff;
+  color: var(--ink);
+}
+
+.sync-status {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding-left: 0.1rem;
+}
+
+.sync-status.online {
+  color: var(--green);
+}
+
+.sync-status.offline {
+  color: var(--accent);
+}
+
 .meta {
   color: color-mix(in srgb, var(--dark-green) 70%, var(--kimberly));
   font-size: 0.95rem;
+}
+
+.lobby-panel {
+  padding: 0.8rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.lobby-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.lobby-panel label {
+  font-weight: 700;
+  color: color-mix(in srgb, var(--dark-green) 75%, var(--kimberly));
+}
+
+.join-panel {
+  border: 1px solid color-mix(in srgb, var(--line) 50%, white);
+  border-radius: 10px;
+  padding: 0.55rem;
+  background: color-mix(in srgb, var(--cornflower-blue) 5%, white);
+  display: grid;
+  gap: 0.4rem;
+}
+
+.join-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+#join-name {
+  flex: 1 1 220px;
+  border: 1px solid color-mix(in srgb, var(--line) 60%, white);
+  border-radius: 8px;
+  padding: 0.45rem 0.5rem;
+  background: #fff;
+  color: var(--ink);
+}
+
+.join-status {
+  font-size: 0.86rem;
+  color: color-mix(in srgb, var(--dark-green) 70%, var(--kimberly));
+}
+
+.join-status.good {
+  color: var(--green);
+}
+
+.join-status.warn {
+  color: var(--accent);
+}
+
+.lobby-roster-wrap {
+  border: 1px solid color-mix(in srgb, var(--line) 50%, white);
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.55rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.lobby-roster-title {
+  margin: 0;
+  font-size: 0.9rem;
+  color: color-mix(in srgb, var(--dark-green) 75%, var(--kimberly));
+}
+
+.lobby-roster {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.16rem;
+}
+
+.lobby-roster li {
+  font-size: 0.88rem;
+  color: color-mix(in srgb, var(--dark-green) 78%, var(--kimberly));
+}
+
+.lobby-roster li.open {
+  color: var(--muted);
+}
+
+.lobby-roster li.self {
+  font-weight: 700;
+  color: var(--green);
+}
+
+.lobby-admin-editor {
+  display: grid;
+  gap: 0.3rem;
+}
+
+#lobby-players {
+  border: 1px solid color-mix(in srgb, var(--line) 60%, white);
+  border-radius: 10px;
+  padding: 0.6rem;
+  background: #fff;
+  color: var(--ink);
+  width: 100%;
+  resize: vertical;
+  min-height: 110px;
+}
+
+#lobby-players:disabled {
+  opacity: 0.72;
+}
+
+.lobby-status {
+  font-size: 0.9rem;
+  color: color-mix(in srgb, var(--dark-green) 70%, var(--kimberly));
 }
 
 .bracket-shell {
@@ -206,6 +406,46 @@ button.primary {
   position: relative;
   width: 100%;
   height: 100%;
+}
+
+.mobile-bracket {
+  --match-scale: 1;
+  width: 100%;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.mobile-stage {
+  border: 1px solid color-mix(in srgb, var(--line) 45%, white);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--cornflower-blue) 4%, white);
+  padding: 0.65rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.mobile-stage-title {
+  margin: 0;
+  font-family: "Mario Kart", "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+  font-size: 0.98rem;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--dark-green) 82%, var(--kimberly));
+}
+
+.mobile-round {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.mobile-round-title {
+  margin: 0;
+  font-size: 0.87rem;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--dark-green) 72%, var(--kimberly));
+}
+
+.mobile-bracket .match {
+  width: 100%;
 }
 
 .bracket {
@@ -360,6 +600,10 @@ button.primary {
   font-size: 1.05rem;
 }
 
+.admin-only.locked {
+  opacity: 0.7;
+}
+
 .hidden {
   display: none;
 }
@@ -380,7 +624,9 @@ button.primary {
     align-items: flex-start;
   }
 
-  .settings {
+  .admin-auth,
+  .settings,
+  .sync-controls {
     width: 100%;
   }
 
@@ -389,13 +635,42 @@ button.primary {
     width: 100%;
   }
 
+  #tournament-id {
+    width: 100%;
+  }
+
+  .join-row {
+    flex-direction: column;
+  }
+
+  #join-name {
+    width: 100%;
+    flex: 1 1 auto;
+  }
+
   .bracket-shell {
-    min-height: clamp(480px, 72vh, 760px);
+    min-height: auto;
     padding: 0.8rem;
   }
 
   .bracket-viewport {
-    min-height: clamp(420px, 62vh, 660px);
+    min-height: auto;
     padding: 0.5rem;
+  }
+
+  .mobile-bracket {
+    gap: 0.7rem;
+  }
+
+  .mobile-stage {
+    padding: 0.55rem;
+  }
+
+  .mobile-stage-title {
+    font-size: 0.94rem;
+  }
+
+  .mobile-round-title {
+    font-size: 0.84rem;
   }
 }

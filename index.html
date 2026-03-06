@@ -14,7 +14,14 @@
 
   <main class="app">
     <section class="toolbar panel" aria-label="Tournament controls">
-      <div id="settings-panel" class="settings">
+      <div class="admin-auth" aria-label="Admin access">
+        <label for="admin-password">Admin</label>
+        <input id="admin-password" type="password" placeholder="Password" />
+        <button id="admin-login" type="button">Unlock</button>
+        <button id="admin-logout" class="hidden" type="button">Lock</button>
+        <span id="admin-status" class="admin-status">Viewer mode</span>
+      </div>
+      <div id="settings-panel" class="settings admin-only">
         <div class="count-control">
           <label for="player-count">Players</label>
           <div class="stepper">
@@ -30,7 +37,41 @@
         </select>
         <button id="update-bracket" class="primary" type="button">Create Bracket</button>
       </div>
+      <div class="sync-controls admin-only" aria-label="Shared bracket sync controls">
+        <label for="tournament-id">Tournament ID</label>
+        <input id="tournament-id" type="text" maxlength="40" value="live" />
+        <button id="join-tournament" type="button">Join</button>
+        <button id="copy-link" type="button">Copy Link</button>
+        <span id="sync-status" class="sync-status">Cloud sync: local only</span>
+      </div>
       <div id="meta" class="meta"></div>
+    </section>
+
+    <section class="panel lobby-panel" aria-label="Lobby">
+      <div class="lobby-head">
+        <h2>Lobby</h2>
+        <button id="start-tournament" class="primary admin-only" type="button">Seed Players and Begin Tournament</button>
+      </div>
+
+      <div class="join-panel" aria-label="Join lobby">
+        <label for="join-name">Join Lobby</label>
+        <div class="join-row">
+          <input id="join-name" type="text" maxlength="32" placeholder="Enter your name" />
+          <button id="join-lobby" type="button">Join</button>
+        </div>
+        <div id="join-status" class="join-status"></div>
+      </div>
+
+      <div class="lobby-roster-wrap" aria-label="Lobby roster">
+        <h3 class="lobby-roster-title">Roster</h3>
+        <ol id="lobby-roster" class="lobby-roster"></ol>
+      </div>
+
+      <div class="admin-only lobby-admin-editor">
+        <label for="lobby-players">Admin Lobby Override (one per line)</label>
+        <textarea id="lobby-players" rows="5" placeholder="Mario&#10;Luigi&#10;Peach"></textarea>
+      </div>
+      <div id="lobby-status" class="lobby-status"></div>
     </section>
 
     <section id="bracket-shell" class="panel bracket-shell" aria-label="Tournament bracket">
@@ -46,6 +87,8 @@
           </div>
         </div>
       </div>
+
+      <div id="mobile-bracket" class="mobile-bracket hidden" aria-label="Mobile tournament bracket"></div>
 
       <div id="champion" class="champion hidden" aria-live="polite"></div>
     </section>
@@ -75,6 +118,9 @@
     </article>
   </template>
 
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+  <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
