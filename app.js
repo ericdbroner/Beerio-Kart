@@ -1209,15 +1209,17 @@ function submitMatchSelectionViaCloud(stage, roundIndex, matchIndex, slotIndex, 
       actor
     );
 
-    if (!pendingResult.ok || !pendingResult.changed) {
+    if (!pendingResult.ok) {
       return;
     }
 
     pendingCommittedState = baselineState;
-    currentPayload.schemaVersion = CLOUD_SCHEMA_VERSION;
-    currentPayload.updatedAt = Date.now();
-    currentPayload.updatedBy = deviceId;
-    currentPayload.state = cloneStateForCloud(baselineState);
+    if (pendingResult.changed) {
+      currentPayload.schemaVersion = CLOUD_SCHEMA_VERSION;
+      currentPayload.updatedAt = Date.now();
+      currentPayload.updatedBy = deviceId;
+      currentPayload.state = cloneStateForCloud(baselineState);
+    }
     return currentPayload;
   }, (error, committed) => {
     if (error) {
@@ -1234,7 +1236,7 @@ function submitMatchSelectionViaCloud(stage, roundIndex, matchIndex, slotIndex, 
 
     notice = pendingResult.message;
 
-    if (!pendingResult.changed || !committed) {
+    if (!committed) {
       renderMeta();
       return;
     }
@@ -1328,6 +1330,14 @@ function applyMatchSelectionToState(targetState, stage, roundIndex, matchIndex, 
   }
 
   if (match.winnerIndex !== null) {
+    if (match.winnerIndex === slotIndex) {
+      return {
+        ok: true,
+        changed: false,
+        reason: "",
+        message: `Winner confirmed: ${match.players[slotIndex]}.`
+      };
+    }
     return {
       ok: false,
       changed: false,
