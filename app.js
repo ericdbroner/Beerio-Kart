@@ -150,7 +150,9 @@ function boot() {
   });
 
   els.bracket.addEventListener("click", handleBracketClick);
+  els.mobileBracket.addEventListener("click", handleBracketClick);
   els.bracket.addEventListener("change", handleBracketChange);
+  els.mobileBracket.addEventListener("change", handleBracketChange);
 
   initCloudSync();
   lockAdminPanel();
