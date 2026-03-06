@@ -713,21 +713,36 @@ function resetTournamentToLobby() {
     return;
   }
 
+  const adminName = normalizeName(localJoinedName);
+  if (!adminName) {
+    notice = "Reset blocked: admin must join the lobby as a player first.";
+    renderMeta();
+    return;
+  }
+
+  const currentLobby = normalizedLobbyPlayers(state.lobbyPlayers);
+  if (findLobbyIndexByName(currentLobby, adminName) < 0) {
+    notice = "Reset blocked: your admin player is not in the lobby roster.";
+    renderMeta();
+    return;
+  }
+
   const confirmed = window.confirm(
-    "Reset the current tournament and return to lobby? This clears all bracket results."
+    `Reset tournament and return to lobby?\n\nThis will clear all bracket results, keep only ${adminName} in the lobby, and require everyone else to rejoin.`
   );
   if (!confirmed) {
     return;
   }
 
-  const lobbyPlayers = normalizedLobbyPlayers(state.lobbyPlayers);
+  saveJoinedLobbyName(adminName);
   state.tournamentStarted = false;
-  state.playerCount = clamp(Math.max(lobbyPlayers.length, DEFAULT_PLAYERS), MIN_PLAYERS, MAX_PLAYERS);
+  state.lobbyPlayers = [adminName];
+  state.playerCount = DEFAULT_PLAYERS;
   state.bracketSize = nextPowerOfTwo(state.playerCount);
   state.rounds = [];
   state.losersRounds = [];
   state.grandFinals = [];
-  notice = "Tournament reset. Back in lobby.";
+  notice = `Tournament reset. Only ${adminName} remains in lobby. Everyone else must rejoin.`;
   persistState();
   render();
 }
