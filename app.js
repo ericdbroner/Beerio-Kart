@@ -1873,8 +1873,9 @@ function isLocalPlayerInLobby() {
 }
 
 function renderPhaseVisibility(phase) {
+  const showToolbarForAdminRecovery = phase === UI_PHASE_JOIN && state.tournamentStarted;
   els.joinScreen.classList.toggle("hidden", phase !== UI_PHASE_JOIN);
-  els.toolbar.classList.toggle("hidden", phase === UI_PHASE_JOIN);
+  els.toolbar.classList.toggle("hidden", phase === UI_PHASE_JOIN && !showToolbarForAdminRecovery);
   els.lobbyPanel.classList.toggle("hidden", phase !== UI_PHASE_LOBBY);
   els.bracketShell.classList.toggle("hidden", phase !== UI_PHASE_BRACKET);
 }
