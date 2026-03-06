@@ -660,6 +660,24 @@ button.primary {
 }
 
 @media (max-width: 760px) {
+  .hero {
+    padding: 0.9rem 0.7rem 0.35rem;
+  }
+
+  .hero h1 {
+    font-size: clamp(1.05rem, 7.5vw, 1.65rem);
+    letter-spacing: 0.015em;
+    line-height: 1.08;
+    max-width: 11.5ch;
+    margin-inline: auto;
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+  }
+
+  .hero p {
+    font-size: 0.88rem;
+  }
+
   .toolbar {
     flex-direction: column;
     align-items: flex-start;
