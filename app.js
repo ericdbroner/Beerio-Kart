@@ -1161,6 +1161,11 @@ function handleBracketClick(event) {
   const result = applyMatchSelectionToState(state, stage, roundIndex, matchIndex, slotIndex, actor);
   if (!result.ok) {
     notice = matchSelectionFailureMessage(result.reason);
+    if (result.reason === "already_decided") {
+      recalculateBracket();
+      render();
+      return;
+    }
     renderMeta();
     return;
   }
@@ -1230,6 +1235,11 @@ function submitMatchSelectionViaCloud(stage, roundIndex, matchIndex, slotIndex, 
 
     if (!pendingResult.ok) {
       notice = matchSelectionFailureMessage(pendingResult.reason);
+      if (pendingResult.reason === "already_decided") {
+        recalculateBracket();
+        render();
+        return;
+      }
       renderMeta();
       return;
     }
