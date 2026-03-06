@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Beerio Kart Redemption</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <h1>Beerio Kart Redemption</h1>
+    <p>Single-elimination, win/loss bracket.</p>
+  </header>
+
+  <main class="app">
+    <section class="toolbar panel" aria-label="Tournament controls">
+      <div id="settings-panel" class="settings">
+        <div class="count-control">
+          <label for="player-count">Players</label>
+          <div class="stepper">
+            <button id="decrease-count" type="button" aria-label="Decrease players">-</button>
+            <input id="player-count" type="number" min="2" step="1" value="16" />
+            <button id="increase-count" type="button" aria-label="Increase players">+</button>
+          </div>
+        </div>
+        <label for="elimination-mode">Format</label>
+        <select id="elimination-mode">
+          <option value="single">Single Elimination</option>
+          <option value="double">Double Elimination</option>
+        </select>
+        <button id="update-bracket" class="primary" type="button">Create Bracket</button>
+      </div>
+      <div id="meta" class="meta"></div>
+    </section>
+
+    <section id="bracket-shell" class="panel bracket-shell" aria-label="Tournament bracket">
+      <div id="empty" class="empty-state">Adjust players and format above, then create or update the bracket.</div>
+
+      <div id="bracket-viewport" class="bracket-viewport hidden">
+        <div id="bracket-canvas" class="bracket-canvas">
+          <div id="bracket" class="bracket">
+            <div id="left-side" class="side" aria-label="Left side bracket"></div>
+            <div id="final-side" class="final-side" aria-label="Final round"></div>
+            <div id="right-side" class="side" aria-label="Right side bracket"></div>
+            <div id="losers-side" class="losers-side hidden" aria-label="Losers bracket"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="champion" class="champion hidden" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <template id="match-template">
+    <article class="match">
+      <header class="match-head"></header>
+
+      <div class="competitor" data-slot="0">
+        <button class="win-btn" type="button">Win</button>
+        <span class="seed-tag hidden"></span>
+        <input class="name-input hidden" type="text" maxlength="32" placeholder="Enter name" />
+        <span class="name-label"></span>
+      </div>
+
+      <div class="competitor" data-slot="1">
+        <button class="win-btn" type="button">Win</button>
+        <span class="seed-tag hidden"></span>
+        <input class="name-input hidden" type="text" maxlength="32" placeholder="Enter name" />
+        <span class="name-label"></span>
+      </div>
+
+      <footer class="match-foot">
+        <span class="status"></span>
+      </footer>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
