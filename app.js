@@ -1214,11 +1214,11 @@ function submitMatchSelectionViaCloud(stage, roundIndex, matchIndex, slotIndex, 
       actor
     );
 
+    pendingCommittedState = baselineState;
     if (!pendingResult.ok) {
       return;
     }
 
-    pendingCommittedState = baselineState;
     if (pendingResult.changed) {
       currentPayload.schemaVersion = CLOUD_SCHEMA_VERSION;
       currentPayload.updatedAt = Date.now();
@@ -1236,7 +1236,7 @@ function submitMatchSelectionViaCloud(stage, roundIndex, matchIndex, slotIndex, 
     if (!pendingResult.ok) {
       notice = matchSelectionFailureMessage(pendingResult.reason);
       if (pendingResult.reason === "already_decided") {
-        recalculateBracket();
+        applySnapshotStateLocally(pendingCommittedState);
         render();
         return;
       }
@@ -1247,23 +1247,36 @@ function submitMatchSelectionViaCloud(stage, roundIndex, matchIndex, slotIndex, 
     notice = pendingResult.message;
 
     if (!committed) {
+      if (!pendingResult.changed) {
+        applySnapshotStateLocally(pendingCommittedState);
+        render();
+        return;
+      }
       renderMeta();
       return;
     }
 
-    if (pendingCommittedState) {
-      const nextState = coerceStateObject(pendingCommittedState);
-      if (nextState) {
-        state = nextState;
-        els.eliminationMode.value = state.eliminationMode;
-        syncLobbyTextFromState();
-        recalculateBracket();
-        persistLocalState();
-      }
-    }
+    applySnapshotStateLocally(pendingCommittedState);
 
     render();
   }, false);
+}
+
+function applySnapshotStateLocally(snapshotState) {
+  if (!snapshotState) {
+    return;
+  }
+
+  const nextState = coerceStateObject(snapshotState);
+  if (!nextState) {
+    return;
+  }
+
+  state = nextState;
+  els.eliminationMode.value = state.eliminationMode;
+  syncLobbyTextFromState();
+  recalculateBracket();
+  persistLocalState();
 }
 
 function applyMatchSelectionToState(targetState, stage, roundIndex, matchIndex, slotIndex, actor) {
