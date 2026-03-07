@@ -7,6 +7,9 @@
 :root {
   color-scheme: light;
 
+  --display-font: "Mario Kart", "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+  --body-font: "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+
   --cornflower-blue: #6185f8;
   --saddle-brown: #954b0c;
   --jambalaya: #684632;
@@ -36,7 +39,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+  font-family: var(--body-font);
   color: var(--ink);
   background:
     radial-gradient(circle at 8% 12%, color-mix(in srgb, var(--tulip-tree) 40%, transparent) 0%, transparent 35%),
@@ -51,7 +54,7 @@ body {
 
 .hero h1 {
   margin: 0;
-  font-family: "Mario Kart", "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+  font-family: var(--display-font);
   font-size: clamp(1.6rem, 2.4vw, 2.36rem);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -90,7 +93,7 @@ body {
 .toolbar h2,
 .lobby-panel h2 {
   margin: 0;
-  font-family: "Mario Kart", "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+  font-family: var(--display-font);
   font-size: 1rem;
   letter-spacing: 0.02em;
   color: color-mix(in srgb, var(--dark-green) 82%, var(--kimberly));
@@ -100,6 +103,31 @@ button,
 input,
 select {
   font: inherit;
+}
+
+button,
+.meta,
+.join-count,
+.lobby-status,
+.sync-status,
+.admin-status,
+.match-head,
+.seed-tag,
+.status,
+.mobile-player-queue,
+.mobile-player-type,
+.mobile-player-note,
+.mobile-round-title,
+.champion {
+  font-family: var(--display-font);
+}
+
+#join-name,
+#lobby-players,
+.lobby-roster li,
+.name-input,
+.name-label {
+  font-family: var(--display-font);
 }
 
 button {
@@ -121,7 +149,7 @@ button:disabled {
 }
 
 button.primary {
-  font-family: "Mario Kart", "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+  font-family: var(--display-font);
   letter-spacing: 0.02em;
   background: var(--accent);
   border-color: var(--accent);
@@ -253,7 +281,7 @@ button.primary {
 
 .join-screen h2 {
   margin: 0;
-  font-family: "Mario Kart", "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+  font-family: var(--display-font);
   font-size: 1.02rem;
   color: color-mix(in srgb, var(--dark-green) 82%, var(--kimberly));
 }
@@ -429,7 +457,7 @@ button.primary {
 
 .mobile-player-title {
   margin: 0;
-  font-family: "Mario Kart", "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+  font-family: var(--display-font);
   font-size: 0.98rem;
   letter-spacing: 0.02em;
   color: color-mix(in srgb, var(--dark-green) 82%, var(--kimberly));
@@ -467,7 +495,7 @@ button.primary {
 
 .mobile-stage-title {
   margin: 0;
-  font-family: "Mario Kart", "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+  font-family: var(--display-font);
   font-size: 0.98rem;
   letter-spacing: 0.02em;
   color: color-mix(in srgb, var(--dark-green) 82%, var(--kimberly));
@@ -518,7 +546,7 @@ button.primary {
 .round h3,
 .final-title {
   margin: 0;
-  font-family: "Mario Kart", "Avenir Next", "Segoe UI", Tahoma, sans-serif;
+  font-family: var(--display-font);
   font-size: calc(0.95rem * var(--match-scale));
   letter-spacing: 0.02em;
   color: color-mix(in srgb, var(--dark-green) 82%, var(--kimberly));

@@ -1319,95 +1319,42 @@ function applyMatchSelectionToState(targetState, stage, roundIndex, matchIndex, 
     };
   }
 
-  if (actor.type === "admin") {
-    const alreadySet = match.winnerIndex === slotIndex;
-    match.winnerIndex = slotIndex;
-    clearMatchVotes(match);
-    recalculateStateObject(targetState);
+  if (actor.type !== "admin") {
+    return {
+      ok: false,
+      changed: false,
+      reason: "admin_only",
+      message: ""
+    };
+  }
+
+  const alreadySet = match.winnerIndex === slotIndex;
+  if (alreadySet) {
     return {
       ok: true,
-      changed: !alreadySet,
+      changed: false,
       reason: "",
       message: `Admin set winner: ${slotName}.`
     };
   }
 
-  const actorName = normalizeName(actor.name);
-  if (!actorName) {
-    return {
-      ok: false,
-      changed: false,
-      reason: "join_required",
-      message: ""
-    };
-  }
-
-  const playerSlot = localPlayerSlotInMatch(match, actorName);
-  if (playerSlot < 0) {
-    return {
-      ok: false,
-      changed: false,
-      reason: "not_participant",
-      message: ""
-    };
-  }
-
-  if (match.winnerIndex !== null) {
-    if (match.winnerIndex === slotIndex) {
-      return {
-        ok: true,
-        changed: false,
-        reason: "",
-        message: `Winner confirmed: ${match.players[slotIndex]}.`
-      };
-    }
-    return {
-      ok: false,
-      changed: false,
-      reason: "already_decided",
-      message: ""
-    };
-  }
-
-  normalizeMatchVotes(match);
-  const votes = ensureMatchVotes(match);
-  const priorVote = normalizeVoteSlot(votes[playerSlot]);
-  votes[playerSlot] = slotIndex;
-  normalizeMatchVotes(match);
-
-  const outcome = confirmationOutcome(match);
-  if (outcome.state === "agreed") {
-    match.winnerIndex = outcome.slotIndex;
-    clearMatchVotes(match);
-    recalculateStateObject(targetState);
-    return {
-      ok: true,
-      changed: true,
-      reason: "",
-      message: `Winner confirmed: ${match.players[outcome.slotIndex]}.`
-    };
-  }
-
-  if (outcome.state === "conflict") {
-    return {
-      ok: true,
-      changed: priorVote !== slotIndex,
-      reason: "",
-      message: "Conflicting confirmations. Players must agree on the same winner."
-    };
-  }
+  match.winnerIndex = slotIndex;
+  clearMatchVotes(match);
+  recalculateStateObject(targetState);
 
   return {
     ok: true,
-    changed: priorVote !== slotIndex,
+    changed: true,
     reason: "",
-    message: outcome.waitingFor
-      ? `Result recorded. Waiting for ${outcome.waitingFor} to confirm.`
-      : "Result recorded."
+    message: `Admin set winner: ${slotName}.`
   };
 }
 
 function matchSelectionFailureMessage(reason) {
+  if (reason === "admin_only") {
+    return "Admin unlock required to set match winners.";
+  }
+
   if (reason === "join_required") {
     return "Join the lobby first to report match results.";
   }
@@ -1547,78 +1494,6 @@ function normalizeMatchVotes(match) {
   }
 
   return match.votes;
-}
-
-function confirmationOutcome(match) {
-  const votes = normalizeMatchVotes(match);
-  const voteA = normalizeVoteSlot(votes[0]);
-  const voteB = normalizeVoteSlot(votes[1]);
-  const hasVoteA = voteA === 0 || voteA === 1;
-  const hasVoteB = voteB === 0 || voteB === 1;
-
-  if (hasVoteA && hasVoteB) {
-    if (voteA === voteB) {
-      return { state: "agreed", slotIndex: voteA, waitingFor: "", waitingSlot: null };
-    }
-    return { state: "conflict", slotIndex: null, waitingFor: "", waitingSlot: null };
-  }
-
-  if (hasVoteA || hasVoteB) {
-    const waitingSlot = hasVoteA ? 1 : 0;
-    return {
-      state: "pending",
-      slotIndex: null,
-      waitingFor: normalizeName(match.players?.[waitingSlot]),
-      waitingSlot
-    };
-  }
-
-  return { state: "none", slotIndex: null, waitingFor: "", waitingSlot: null };
-}
-
-function localPlayerSlotInMatch(match, playerName) {
-  const target = normalizeName(playerName).toLowerCase();
-  if (!target) {
-    return -1;
-  }
-
-  const slotA = normalizeName(match.players?.[0]).toLowerCase();
-  const slotB = normalizeName(match.players?.[1]).toLowerCase();
-  if (slotA === target) {
-    return 0;
-  }
-  if (slotB === target) {
-    return 1;
-  }
-  return -1;
-}
-
-function canLocalPlayerVoteMatch(match) {
-  if (!state.tournamentStarted || !match || match.winnerIndex !== null) {
-    return false;
-  }
-
-  const hasTwoPlayers = Boolean(
-    normalizeName(match.players?.[0]) &&
-    normalizeName(match.players?.[1])
-  );
-
-  if (!hasTwoPlayers) {
-    return false;
-  }
-
-  return localPlayerSlotInMatch(match, localJoinedName) >= 0;
-}
-
-function localPlayerVoteForMatch(match) {
-  const localSlot = localPlayerSlotInMatch(match, localJoinedName);
-  if (localSlot < 0) {
-    return null;
-  }
-
-  const votes = normalizeMatchVotes(match);
-  const vote = normalizeVoteSlot(votes[localSlot]);
-  return vote === 0 || vote === 1 ? vote : null;
 }
 
 function getMatch(stage, roundIndex, matchIndex) {
@@ -2233,10 +2108,10 @@ function timelineMatchLabel(entry) {
   }
 
   if (entry.roundIndex === 1) {
-    return "Grand Final Reset";
+    return "Championship Redemption";
   }
 
-  return "Grand Final";
+  return "Championship";
 }
 
 function isPlayerEliminated(playerName, timeline) {
@@ -2324,16 +2199,16 @@ function renderDoubleEliminationLayout() {
 
   const grandFinalTitle = document.createElement("h3");
   grandFinalTitle.className = "final-title";
-  grandFinalTitle.textContent = "Grand Final";
+  grandFinalTitle.textContent = "Championship";
   els.finalSide.appendChild(grandFinalTitle);
-  els.finalSide.appendChild(renderMatch("grand", 0, 0, "Grand Final", false));
+  els.finalSide.appendChild(renderMatch("grand", 0, 0, "Championship", false));
 
   if (shouldShowResetFinal(state.grandFinals[0])) {
     const resetTitle = document.createElement("h3");
     resetTitle.className = "final-title";
-    resetTitle.textContent = "Grand Final Reset";
+    resetTitle.textContent = "Championship Redemption";
     els.finalSide.appendChild(resetTitle);
-    els.finalSide.appendChild(renderMatch("grand", 1, 0, "Reset Final", false));
+    els.finalSide.appendChild(renderMatch("grand", 1, 0, "Championship Redemption", false));
   }
 
   if (state.losersRounds.length === 0) {
@@ -2405,8 +2280,6 @@ function renderMatch(stage, roundIndex, matchIndex, title, editableNames) {
   head.textContent = title;
 
   const isEntryRound = stage === "winners" && roundIndex === 0;
-  const localPlayerVote = localPlayerVoteForMatch(match);
-  const localCanVote = canLocalPlayerVoteMatch(match);
   const rows = Array.from(node.querySelectorAll(".competitor"));
 
   for (let slotIndex = 0; slotIndex < 2; slotIndex += 1) {
@@ -2424,17 +2297,14 @@ function renderMatch(stage, roundIndex, matchIndex, title, editableNames) {
     winBtn.dataset.match = String(matchIndex);
     winBtn.dataset.slot = String(slotIndex);
     const canAdminSet = isAdminUnlocked && state.tournamentStarted && Boolean(slotName && otherName);
-    const canPlayerConfirm = !isAdminUnlocked && localCanVote;
-    winBtn.disabled = !(canAdminSet || canPlayerConfirm);
+    winBtn.disabled = !canAdminSet;
 
     if (isWinner) {
       winBtn.textContent = "Won";
     } else if (canAdminSet) {
       winBtn.textContent = "Set Win";
-    } else if (canPlayerConfirm) {
-      winBtn.textContent = localPlayerVote === slotIndex ? "Voted" : "Confirm";
     } else {
-      winBtn.textContent = "Win";
+      winBtn.textContent = "Admin Only";
     }
 
     const seedTag = row.querySelector(".seed-tag");
@@ -2572,27 +2442,10 @@ function matchStatus(match, isEntryRound) {
   }
 
   if (match.winnerIndex === null) {
-    const outcome = confirmationOutcome(match);
-    const localSlot = localPlayerSlotInMatch(match, localJoinedName);
-    const localVote = localSlot >= 0 ? localPlayerVoteForMatch(match) : null;
-    if (outcome.state === "conflict") {
-      return "Conflicting confirmations. Players picked different winners.";
-    }
-    if (outcome.state === "pending") {
-      if (localSlot >= 0 && localVote !== null) {
-        return "Waiting for opponent confirmation.";
-      }
-      if (localSlot >= 0 && outcome.waitingSlot === localSlot) {
-        return "Opponent voted. Confirm winner to finalize.";
-      }
-      return outcome.waitingFor
-        ? `Waiting for ${outcome.waitingFor} confirmation.`
-        : "Waiting for opponent confirmation.";
-    }
     if (isAdminUnlocked) {
-      return "Admin can set winner, or both players can confirm.";
+      return "Admin can set winner.";
     }
-    return "Both players must confirm the winner.";
+    return "Waiting for admin to set winner.";
   }
 
   return `Advances: ${match.players[match.winnerIndex]}`;
