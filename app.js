@@ -167,6 +167,8 @@ function boot() {
 
   initCloudSync();
   lockAdminPanel();
+  toolbarCollapsed = true;
+  persistToolbarCollapsed();
   applyToolbarCollapsedUi();
 
   wasMobileView = isMobileView();
