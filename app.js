@@ -209,6 +209,10 @@ function applyToolbarCollapsedUi() {
   }
 
   els.toolbar.classList.toggle("collapsed", toolbarCollapsed);
+  if (els.toolbarContent) {
+    els.toolbarContent.hidden = toolbarCollapsed;
+    els.toolbarContent.setAttribute("aria-hidden", toolbarCollapsed ? "true" : "false");
+  }
   els.toolbarToggle.textContent = toolbarCollapsed ? "Show Controls" : "Hide Controls";
   els.toolbarToggle.setAttribute("aria-expanded", toolbarCollapsed ? "false" : "true");
 }
