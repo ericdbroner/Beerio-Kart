@@ -8,6 +8,7 @@ const CLOUD_SCHEMA_VERSION = 1;
 const CLOUD_SYNC_DEBOUNCE_MS = 250;
 const DEVICE_ID_KEY = "beerio-kart-device-id";
 const JOINED_LOBBY_NAME_KEY = "beerio-kart-joined-name";
+const TOOLBAR_COLLAPSED_KEY = "beerio-kart-toolbar-collapsed";
 const DEFAULT_ADMIN_PASSWORD = "B33r10k@rt";
 const ACTION_SOUND_SRC = "assets/wolfy_sanic-collect-ring-15982.mp3";
 const ACTION_SOUND_POOL_SIZE = 4;
@@ -22,6 +23,8 @@ const els = {
   appRoot: document.querySelector(".app"),
   joinScreen: document.querySelector("#join-screen"),
   toolbar: document.querySelector("#toolbar"),
+  toolbarToggle: document.querySelector("#toolbar-toggle"),
+  toolbarContent: document.querySelector("#toolbar-content"),
   lobbyPanel: document.querySelector("#lobby-panel"),
   adminPassword: document.querySelector("#admin-password"),
   adminLogin: document.querySelector("#admin-login"),
@@ -75,6 +78,7 @@ let backgroundUnlockHandler = null;
 let backgroundUnlockBound = false;
 let wasMobileView = null;
 let localJoinedName = loadJoinedLobbyName();
+let toolbarCollapsed = loadToolbarCollapsed();
 let joinPending = false;
 
 let state = loadState() || createDefaultState();
@@ -150,6 +154,12 @@ function boot() {
     lockAdminPanel();
   });
 
+  if (els.toolbarToggle) {
+    els.toolbarToggle.addEventListener("click", () => {
+      toggleToolbarCollapsed();
+    });
+  }
+
   els.bracket.addEventListener("click", handleBracketClick);
   els.mobileBracket.addEventListener("click", handleBracketClick);
   els.bracket.addEventListener("change", handleBracketChange);
@@ -157,6 +167,7 @@ function boot() {
 
   initCloudSync();
   lockAdminPanel();
+  applyToolbarCollapsedUi();
 
   wasMobileView = isMobileView();
   window.addEventListener("resize", handleViewportResize);
@@ -174,6 +185,38 @@ function boot() {
   }
 
   render();
+}
+
+function loadToolbarCollapsed() {
+  try {
+    return localStorage.getItem(TOOLBAR_COLLAPSED_KEY) === "1";
+  } catch (_error) {
+    return false;
+  }
+}
+
+function persistToolbarCollapsed() {
+  try {
+    localStorage.setItem(TOOLBAR_COLLAPSED_KEY, toolbarCollapsed ? "1" : "0");
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function applyToolbarCollapsedUi() {
+  if (!els.toolbar || !els.toolbarToggle) {
+    return;
+  }
+
+  els.toolbar.classList.toggle("collapsed", toolbarCollapsed);
+  els.toolbarToggle.textContent = toolbarCollapsed ? "Show Controls" : "Hide Controls";
+  els.toolbarToggle.setAttribute("aria-expanded", toolbarCollapsed ? "false" : "true");
+}
+
+function toggleToolbarCollapsed() {
+  toolbarCollapsed = !toolbarCollapsed;
+  applyToolbarCollapsedUi();
+  persistToolbarCollapsed();
 }
 
 function createActionSoundPool() {
@@ -363,7 +406,7 @@ function unlockAdminPanel() {
   els.adminStatus.classList.add("unlocked");
   refreshAdminControls();
   notice = "Admin controls unlocked.";
-  renderMeta();
+  render();
 }
 
 function lockAdminPanel() {
@@ -374,6 +417,7 @@ function lockAdminPanel() {
   els.adminStatus.textContent = "Viewer mode";
   els.adminStatus.classList.remove("unlocked");
   refreshAdminControls();
+  render();
 }
 
 function refreshAdminControls() {
@@ -2296,6 +2340,8 @@ function renderMatch(stage, roundIndex, matchIndex, title, editableNames) {
     winBtn.dataset.round = String(roundIndex);
     winBtn.dataset.match = String(matchIndex);
     winBtn.dataset.slot = String(slotIndex);
+    const showWinButton = isAdminUnlocked;
+    winBtn.classList.toggle("hidden", !showWinButton);
     const canAdminSet = isAdminUnlocked && state.tournamentStarted && Boolean(slotName && otherName);
     winBtn.disabled = !canAdminSet;
 
@@ -2304,7 +2350,7 @@ function renderMatch(stage, roundIndex, matchIndex, title, editableNames) {
     } else if (canAdminSet) {
       winBtn.textContent = "Set Win";
     } else {
-      winBtn.textContent = "Admin Only";
+      winBtn.textContent = "Win";
     }
 
     const seedTag = row.querySelector(".seed-tag");

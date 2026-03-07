@@ -28,26 +28,39 @@
     </section>
 
     <section id="toolbar" class="toolbar panel" aria-label="Tournament controls">
-      <div class="admin-auth" aria-label="Admin access">
-        <label for="admin-password">Admin</label>
-        <input id="admin-password" type="password" placeholder="Password" />
-        <button id="admin-login" type="button">Unlock</button>
-        <button id="admin-logout" class="hidden" type="button">Lock</button>
-        <span id="admin-status" class="admin-status">Viewer mode</span>
+      <div class="toolbar-head">
+        <button
+          id="toolbar-toggle"
+          class="toolbar-toggle"
+          type="button"
+          aria-expanded="true"
+          aria-controls="toolbar-content"
+        >
+          Hide Controls
+        </button>
       </div>
-      <div id="settings-panel" class="settings admin-only">
-        <label for="elimination-mode">Format</label>
-        <select id="elimination-mode">
-          <option value="single">Single Elimination</option>
-          <option value="double">Double Elimination</option>
-        </select>
-        <button id="update-bracket" class="primary" type="button">Update Format</button>
-        <button id="reset-tournament" type="button">Reset Tournament</button>
+      <div id="toolbar-content" class="toolbar-content">
+        <div class="admin-auth" aria-label="Admin access">
+          <label for="admin-password">Admin</label>
+          <input id="admin-password" type="password" placeholder="Password" />
+          <button id="admin-login" type="button">Unlock</button>
+          <button id="admin-logout" class="hidden" type="button">Lock</button>
+          <span id="admin-status" class="admin-status">Viewer mode</span>
+        </div>
+        <div id="settings-panel" class="settings admin-only">
+          <label for="elimination-mode">Format</label>
+          <select id="elimination-mode">
+            <option value="single">Single Elimination</option>
+            <option value="double">Double Elimination</option>
+          </select>
+          <button id="update-bracket" class="primary" type="button">Update Format</button>
+          <button id="reset-tournament" type="button">Reset Tournament</button>
+        </div>
+        <div class="sync-controls" aria-label="Shared bracket sync status">
+          <span id="sync-status" class="sync-status">Cloud sync: local only</span>
+        </div>
+        <div id="meta" class="meta"></div>
       </div>
-      <div class="sync-controls" aria-label="Shared bracket sync status">
-        <span id="sync-status" class="sync-status">Cloud sync: local only</span>
-      </div>
-      <div id="meta" class="meta"></div>
     </section>
 
     <section id="lobby-panel" class="panel lobby-panel" aria-label="Lobby">
