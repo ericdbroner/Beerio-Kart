@@ -700,6 +700,10 @@ button.primary {
   display: none;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 @media (max-width: 1150px) {
   .bracket-shell {
     min-height: clamp(520px, 75vh, 860px);

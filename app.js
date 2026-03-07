@@ -427,6 +427,7 @@ function lockAdminPanel() {
 function refreshAdminControls() {
   for (const node of els.adminOnlyBlocks) {
     node.classList.toggle("locked", !isAdminUnlocked);
+    node.classList.toggle("hidden", !isAdminUnlocked);
   }
 
   els.eliminationMode.disabled = !isAdminUnlocked || state.tournamentStarted;
@@ -2346,6 +2347,7 @@ function renderMatch(stage, roundIndex, matchIndex, title, editableNames) {
     winBtn.dataset.slot = String(slotIndex);
     const showWinButton = isAdminUnlocked;
     winBtn.classList.toggle("hidden", !showWinButton);
+    winBtn.hidden = !showWinButton;
     const canAdminSet = isAdminUnlocked && state.tournamentStarted && Boolean(slotName && otherName);
     winBtn.disabled = !canAdminSet;
 
