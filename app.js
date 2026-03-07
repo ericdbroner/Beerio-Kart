@@ -10,6 +10,10 @@ const DEVICE_ID_KEY = "beerio-kart-device-id";
 const JOINED_LOBBY_NAME_KEY = "beerio-kart-joined-name";
 const TOOLBAR_COLLAPSED_KEY = "beerio-kart-toolbar-collapsed";
 const DEFAULT_ADMIN_PASSWORD = "B33r10k@rt";
+const BRACKET_DISPLAY_ALIASES = Object.freeze({
+  emily: "Sam",
+  camden: "Connor"
+});
 const ACTION_SOUND_SRC = "assets/wolfy_sanic-collect-ring-15982.mp3";
 const ACTION_SOUND_POOL_SIZE = 4;
 const BACKGROUND_MUSIC_SRC = "assets/mario-kart-background.mp3";
@@ -454,6 +458,14 @@ function parseLobbyPlayers(rawText) {
     .filter(Boolean);
 
   return dedupeNames(lines).slice(0, MAX_PLAYERS);
+}
+
+function renderPlayerLabel(name) {
+  const normalized = normalizeName(name);
+  if (!normalized) {
+    return "";
+  }
+  return BRACKET_DISPLAY_ALIASES[normalized.toLowerCase()] || normalized;
 }
 
 function dedupeNames(names) {
@@ -2396,7 +2408,7 @@ function renderMatch(stage, roundIndex, matchIndex, title, editableNames) {
       if (slotLocked) {
         label.textContent = "BYE";
       } else if (slotName) {
-        label.textContent = slotName;
+        label.textContent = renderPlayerLabel(slotName);
       } else {
         label.textContent = slotReady ? "BYE" : "TBD";
       }
@@ -2457,6 +2469,8 @@ function shouldShowResetFinal(grandFinalOne) {
 
 function matchStatus(match, isEntryRound) {
   const [a, b] = match.players;
+  const labelA = renderPlayerLabel(a);
+  const labelB = renderPlayerLabel(b);
   const readyA = Boolean(match.slotReady[0]);
   const readyB = Boolean(match.slotReady[1]);
   const lockedA = isEntryRound && Boolean(match.locked[0]);
@@ -2464,11 +2478,11 @@ function matchStatus(match, isEntryRound) {
 
   if (lockedA || lockedB) {
     if (a && readyA && (!b || !readyB)) {
-      return `Auto-advance: ${a}`;
+      return `Auto-advance: ${labelA}`;
     }
 
     if (b && readyB && (!a || !readyA)) {
-      return `Auto-advance: ${b}`;
+      return `Auto-advance: ${labelB}`;
     }
 
     const openSeed = lockedA ? seedText(match.seeds[1]) : seedText(match.seeds[0]);
@@ -2489,11 +2503,11 @@ function matchStatus(match, isEntryRound) {
   }
 
   if (a && !b) {
-    return `Auto-advance: ${a}`;
+    return `Auto-advance: ${labelA}`;
   }
 
   if (!a && b) {
-    return `Auto-advance: ${b}`;
+    return `Auto-advance: ${labelB}`;
   }
 
   if (!a && !b) {
@@ -2507,7 +2521,7 @@ function matchStatus(match, isEntryRound) {
     return "Waiting for admin to set winner.";
   }
 
-  return `Advances: ${match.players[match.winnerIndex]}`;
+  return `Advances: ${renderPlayerLabel(match.players[match.winnerIndex])}`;
 }
 
 function countUnresolvedMatches() {

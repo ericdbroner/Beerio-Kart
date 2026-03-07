@@ -614,7 +614,7 @@ button.primary {
 
 .competitor {
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: auto 1fr;
   gap: calc(0.45rem * var(--match-scale));
   align-items: center;
   padding: calc(0.3rem * var(--match-scale));
@@ -632,6 +632,8 @@ button.primary {
 }
 
 .win-btn {
+  grid-column: 2;
+  justify-self: start;
   min-width: calc(3.1rem * var(--match-scale));
   padding: calc(0.3rem * var(--match-scale)) calc(0.5rem * var(--match-scale));
   font-size: calc(0.85rem * var(--match-scale));
@@ -642,6 +644,8 @@ button.primary {
 }
 
 .seed-tag {
+  grid-column: 1;
+  grid-row: 1;
   font-size: calc(0.75rem * var(--match-scale));
   border: 1px solid color-mix(in srgb, var(--line) 70%, white);
   border-radius: 999px;
@@ -653,6 +657,8 @@ button.primary {
 
 .name-input,
 .name-label {
+  grid-column: 2;
+  grid-row: 1;
   width: 100%;
   min-width: 0;
 }
