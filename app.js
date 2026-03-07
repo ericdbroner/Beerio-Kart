@@ -434,7 +434,7 @@ function refreshAdminControls() {
 
   els.eliminationMode.disabled = !isAdminUnlocked || state.tournamentStarted;
   els.updateBracket.disabled = !isAdminUnlocked;
-  els.resetTournament.disabled = !isAdminUnlocked || !state.tournamentStarted;
+  els.resetTournament.disabled = !state.tournamentStarted;
   els.startTournament.disabled = (
     !isAdminUnlocked ||
     state.tournamentStarted ||
@@ -755,8 +755,9 @@ function startTournamentFromLobby() {
 }
 
 function resetTournamentToLobby() {
-  if (!isAdminUnlocked) {
-    notice = "Admin unlock required to reset the tournament.";
+  const hasResetAccess = isAdminUnlocked || String(els.adminPassword.value || "") === getAdminPassword();
+  if (!hasResetAccess) {
+    notice = "Enter the admin password to reset the tournament.";
     renderMeta();
     return;
   }
@@ -774,6 +775,10 @@ function resetTournamentToLobby() {
   );
   if (!confirmed) {
     return;
+  }
+
+  if (!isAdminUnlocked) {
+    els.adminPassword.value = "";
   }
 
   saveJoinedLobbyName(adminName);
